@@ -36,6 +36,18 @@ function M.find_lsp_root()
   return nil
 end
 
+function M.set_pwd(dir)
+  if dir ~= nil then
+
+    if fn.getcwd() ~= dir then
+      api.nvim_set_current_dir(dir)
+    end
+    return true
+  end
+
+  return false
+end
+
 ---@return string|nil,string|nil, string|nil
 function M.find_pattern_root()
   local search_dir = fn.expand("%:p:h", true)
@@ -162,7 +174,7 @@ end
 ---Determine the current project. Will use several heuristic to determine the project name
 ---if none succeeds it will return nil
 ---@return string|nil, string|nil, string|nil
-local function get_project_root()
+function M.get_project_root()
   for _, detection_method in ipairs(config.options.project.detection_methods) do
     if detection_method == "lsp" then
       local root, lsp_name = M.find_lsp_root()
@@ -180,7 +192,7 @@ local function get_project_root()
 end
 
 function M.get_project_name()
-  local root, pattern_type, method = get_project_root()
+  local root, pattern_type, method = M.get_project_root()
   log(root, pattern_type, method)
 
   local project_name = ""
@@ -281,7 +293,7 @@ function M.attach_to_lsp()
 end
 
 function M.is_file()
-  local buf_type = api.nvim_get_option_value("buf_type",{})
+  local buf_type = api.nvim_get_option_value("buftype",{})
 
   local whitelisted_buf_type = { "", "acwrite" }
   local is_in_whitelist = false
@@ -312,20 +324,20 @@ function M.on_buf_enter()
     return
   end
 
-  local root, method = M.get_project_root()
-  M.set_pwd(root, method)
+  local root, _, _ = M.get_project_root()
+  M.set_pwd(root)
 end
 
 function M.setup()
   local autocmds = {}
-  autocmds[#autocmds + 1] = 'autocmd VimEnter,BufEnter * ++nested lua require("project_nvim.project").on_buf_enter()'
+  autocmds[#autocmds + 1] = 'autocmd VimEnter,BufEnter * ++nested lua require("taskforge.project").on_buf_enter()'
 
   if vim.tbl_contains(config.options.project.detection_methods, "lsp") then
     M.attach_to_lsp()
   end
 
   vim.cmd([[
-    command! ProjectRoot lua require("project_nvim.project").on_buf_enter()
+    command! ProjectRoot lua require("taskforge.project").on_buf_enter()
   ]])
 
   vim.cmd([[augroup project_nvim
