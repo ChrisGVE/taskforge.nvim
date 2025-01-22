@@ -1,9 +1,15 @@
+-- Copyright (c) 2025 Christian C. Berclaz
+--
+-- MIT License
+--
 local M = {}
-local utils = require("taskforge.utils")
-M.config = {}
+local config = require("taskforge.config")
+local utils = require("taskforge.utils.utils")
+local api = vim.api
+local fn = vim.fn
 local todo = {}
 
-local function get_urgnet(limit, project, exclude)
+local function get_urgent(limit, project, exclude)
 	local prj_string = ""
 	if project ~= nil then
 		if exclude ~= nil and exclude == true then
@@ -22,7 +28,7 @@ local function get_urgnet(limit, project, exclude)
 	if result == nil then
 		return {}
 	end
-	local tasks = vim.fn.json_decode(result)
+	local tasks = fn.json_decode(result)
 	utils.sort_by_column(tasks, "urgency")
 	if limit > 0 then
 		return utils.slice(tasks, 1, limit)
@@ -31,8 +37,8 @@ local function get_urgnet(limit, project, exclude)
 end
 
 function M.tasks_get_urgent(limit, project, exclude)
-	limit = limit or M.config.dashboard.limit
-	return get_urgnet(limit, project, exclude)
+	limit = limit or config.options.dashboard.limit
+	return get_urgent(limit, project, exclude)
 end
 
 local function build_task_dict(tasks)
@@ -87,16 +93,16 @@ local function add_todo(task, task_dict, indent)
 end
 
 local function setup_commands()
-	-- vim.api.nvim_create_user_command("Task", function(opts)
+	-- api.nvim_create_user_command("Task", function(opts)
 	-- 	require("taskforge.tasks").display_tasks(unpack(opts.fargs))
 	-- end, { nargs = "*", complete = "custom,v:lua.complete_task_args" })
 	-- _G.complete_task_args = function(arglead, cmdline, cursorpos)
 	-- 	-- Provide a list of taskwarrior arguments for completion
 	-- 	return { "project:work", "status:pending", "priority:H", "due.before:today", "tag:home" }
 	-- end
-	vim.api.nvim_create_user_command("Task", function(opts)
+	api.nvim_create_user_command("Task", function(opts)
 		require("taskforge.interface").display_tasks(unpack(opts.fargs))
-	end, { nargs = "*" })
+	end, { nargs = nil })
 end
 
 function M.display_tasks(...)
@@ -106,9 +112,9 @@ function M.display_tasks(...)
 		cmd = cmd .. " " .. arg
 	end
 	-- Create a new buffer for the output
-	local output_buf = vim.api.nvim_create_buf(false, true)
+	local output_buf = api.nvim_create_buf(false, true)
 
-	local lines_displayed = vim.api.nvim_win_get_height(0)
+	local lines_displayed = api.nvim_win_get_height(0)
 	local row = math.floor(lines_displayed * 0.1) + 1
 	local col = math.floor(vim.o.columns * 0.1)
 
@@ -126,14 +132,14 @@ function M.display_tasks(...)
 	}
 
 	-- Open a new floating window with the output buffer
-	local win_id = vim.api.nvim_open_win(output_buf, true, opts)
+	local win_id = api.nvim_open_win(output_buf, true, opts)
 
 	-- Set the terminal buffer to use the 'task' command
-	vim.fn.termopen(cmd .. " & read", {
+	fn.termopen(cmd .. " & read", {
 		on_exit = function(_, _, _)
-			utils.log_message("tasks.M.display_tasks", "on_exit")
-			vim.api.nvim_win_close(win_id, true)
-			vim.api.nvim_buf_delete(output_buf, { force = true })
+			log("on_exit")
+			api.nvim_win_close(win_id, true)
+			api.nvim_buf_delete(output_buf, { force = true })
 			if utils.is_dashboard_open() then
 				-- refresh dashboard
 				utils.refresh_dashboard()
@@ -170,9 +176,9 @@ function M.test()
 	local tasks_todo = M.get_todo("personal")
 	print(vim.inspect(tasks_todo))
 end
-function M.setup(user_config)
-	utils.log_message("tasks.M.setup", "Setting up Tassks")
-	M.config = vim.tbl_deep_extend("force", M.config, user_config or {})
+
+function M.setup()
+	log()
 	setup_commands()
 end
 

@@ -2,180 +2,91 @@
 --
 -- MIT License
 
+
 -- Core modules
 local M = {}
+
+-- Module imports
+local tasks = require("taskforge.interface")
+-- local tag_tracker = require("taskforge.tag_tracker") -- not implemented yet
+local interface = require("taskforge.interface")
+local dashboard = require("taskforge.dashboard")
+local utils = require("taskforge.utils.utils")
+local markdown = require("taskforge.markdown")
+local debug = require("taskforge.utils.debug")
+local project = require("taskforge.project")
+local config = require("taskforge.config")
+
 local api = vim.api
 local fn = vim.fn
 
--- Module imports
-local tasks = require("taskforge.tasks")
--- local tag_tracker = require("taskforge.tag_tracker") -- not implemented yet
-local interface = require("taskforge.tasks")
-local dashboard = require("taskforge.dashboard")
-local utils = require("taskforge.utils")
+local debug_flg = false
 
--- Constants
-local PLUGIN_NAME = "taskforge.nvim"
+--- Debugging global hooks 
+---@param show? boolean
+_G.dd = function(show, ...)
+  if debug_flg then
+    debug.inspect(show, ...)
+  end
+end
 
--- Default configuration structure
-M.config = {
-	--- toggle the logging
-	debug = true,
-	-- Project naming configuration
-	project = {
-		-- project prefix, will be separated by a dot with the project name
-		prefix = "",
-		-- default project name for situations where the tagged files do not belong to a git project
-		default_project = "project",
-		-- indicate whether the postfix is made by the path of the tagged file, the filename of the tagged file or both
-		postfix = "PATH|FILENAME",
-		-- default separator, path components are replaced with this separator
-		separator = ".",
-	},
+---@param show? boolean
+---@param msg? string|string[]
+---@param opts? snacks.notify.Opts
+_G.bt = function(show, msg,opts)
+  if debug_flg then
+    debug.backtrace(show, msg, opts)
+  end
+end
 
-	-- Tag tracking configuration
-	tags = {
-		-- languages for which the plugin is active
-		enabled_filetypes = {
-			"c",
-			"cpp",
-			"go",
-			"hjson",
-			"java",
-			"javascript",
-			"lua",
-			"markdown",
-			"python",
-			"rust",
-			"typescript",
-			"zig",
-		},
-		definitions = {
-			-- format of the tags
-			tag_format = ".*:",
-			["TODO"] = {
-				priority = "M",
-				tags = { "coding", "enhancement" },
-				due = "+1w",
-				alt = {},
-				create = "ask",
-				close = "auto",
-			},
-			["WARN"] = {
-				priority = "H",
-				tags = { "coding", "warning" },
-				due = "+3d",
-				alt = { "WARNING", "XXX" },
-				create = "auto",
-				close = "auto",
-			},
-			["FIX"] = {
-				priority = "H",
-				tags = { "coding", "bug" },
-				due = "+2d",
-				alt = { "FIXME", "BUG", "FIXIT", "ISSUE" },
-				create = "auto",
-				close = "auto",
-			},
-			["PERF"] = {
-				priority = "M",
-				tags = { "coding", "performance" },
-				due = "+1w",
-				alt = { "OPTIM", "OPTIMIZE", "PERFORMANCE" },
-				create = "auto",
-				close = "ask",
-			},
-			["TEST"] = {
-				priority = "L",
-				tags = { "coding", "testing" },
-				due = nil,
-				alt = { "TESTING", "PASSED", "FAILED" },
-				create = "auto",
-				close = "manual",
-			},
-		},
-	},
+_G.log = function(...)
+  if debug_flg then
+    debug.log(...)
+  end
+end
 
-	-- Dashboard integration
-	dashboard = {
-		--- where information about the taskwarrior project can be found
-		-- TODO: bring the project info at the global level of the config
-		project_info = ".taskforge.json",
-		--- function to reload dashboard config
-		get_dashboard_config = nil,
-		-- Options for Snacks.nvim dashboard
-		snacks_options = {
-			icon = "",
-			title = "Tasks",
-			height = nil,
-			pane = nil,
-			enable = false,
-			padding = 1,
-			indent = 3,
-		},
-		-- Options for Dashboard.nvim
-		dashboard_options = {},
-		format = {
-			-- maximum number of tasks
-			limit = 5,
-			-- maximum number of non-project tasks
-			non_project_limit = 5,
-			-- Defines the section separator
-			sec_sep = ".",
-			-- Enable or disable section shortening
-			shorten_sections = true,
-			-- Maximum width
-			max_width = 50,
-			-- Columns to be shown
-			columns = {
-				"id",
-				"project",
-				"description",
-				"due",
-				"urgency",
-			},
-			-- Abbreviations to shorten project names
-			project_abbreviations = {
-				["work."] = "w.",
-				["personal."] = "p.",
-			},
-		},
-	},
+---@param show? boolean
+_G.metrics = function(show)
+  if debug_flg then
+    debug.metrics(show)
+  end
+end
 
-	-- Task interface configuration
-	interface = {
-		keymaps = {
-			open = "o", -- if tracked,
-			close_task = "d",
-			modify_task = "m",
-			annotate_task = "A",
-			add_task = "a",
-			filter = "/",
-			sort = "s",
-			quit = "q",
-		},
-		view = {
-			default = "list", -- or "tree" for dependency view
-			position = "right",
-			width = 40,
-		},
-		integrations = {
-			telescope = true,
-			fzf = true,
-		},
-	},
+---@param fn fun()
+---@param opts? {count?: number, flush?: boolean, title?: string, show?: boolean}
+_G.profile = function(fn, opts)
+  if debug_flg then
+    debug.profile(fn, opts)
+  end
+end
 
-	-- Highlighting
-	highlights = {
-		urgent = {
-			threshold = 8.0,
-			group = nil, -- Will use @keyword if nil
-		},
-		normal = {
-			group = nil, -- Will use Comment if nil
-		},
-	},
-}
+---@param opts? {min?: number, show?:boolean}
+---@return {summary:table<string, snacks.debug.Stat>, trace:snacks.debug.Stat[], traces:snacks.debug.Trace[]}
+_G.stats = function(opts)
+  if debug_flg then
+    return debug.stats(opts)
+  else
+    return {}
+  end
+end
+
+---@param name string?
+_G.trace = function(name)
+  if debug_flg then
+    return debug.trace(name)
+  end
+end
+
+---@param modname string
+---@param mod? table
+---@param suffix? string
+_G.tracemod = function(modname, mod, suffix)
+  if debug_flg then
+    return debug.tracemod(modname, mod, suffix)
+  end
+end
+
+M.project = nil
 
 -- Command registration
 function M.create_commands()
@@ -218,75 +129,47 @@ end
 -- 	})
 -- end
 
-local function setup_commands()
-	vim.api.nvim_create_user_command("Task2ToDo", function(opts)
-		require("taskforge").render_markdown_todos(unpack(opts.fargs))
-	end, { nargs = "*" })
-end
-
 -- return the task section for dashboard.nvim
 function M.get_dashboard_tasks()
-	return dashboard.get_lines()
+	return dashboard.get_tasks()
 end
 
 -- return the task section for Snacks.nvim dashboard
 function M.get_snacks_dashboard_tasks()
+  log()
 	return dashboard.get_snacks_dashboard_tasks()
-end
-
-function M.get_markdown_todos(project, group_by, limit)
-	local todos = tasks.get_todo(project, group_by, limit) or {}
-	local todos_lines = {}
-	for _, todo in ipairs(todos) do
-		table.insert(todos_lines, string.rep(" ", todo.indent * 2) .. "- [ ] " .. todo.task.description)
-	end
-	return todos_lines
-end
-
-function M.render_markdown_todos(project, group_by, limit)
-	local todos_lines = M.get_markdown_todos(project, group_by, limit)
-	local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-	vim.api.nvim_buf_set_lines(0, row, row, true, todos_lines)
-	vim.api.nvim_win_set_cursor(0, { row + #todos_lines, col })
-end
-
-function M.test()
-	print(table.concat(M.get_markdown_todos("personal", "depends"), "\n"))
-end
-
-function M.get_dashboard_config()
-	if M.config and M.config.dashboard.get_dashboard_config then
-		return M.config.dashboard.get_dashboard_config()
-	end
-	return nil
 end
 
 -- Core setup function
 ---Setting utlis, tasks and dashboard
----@param user_config any
-function M.setup(user_config)
-	-- Merge configs
-	M.config = vim.tbl_deep_extend("force", M.config, user_config or {})
+---@param options table?
+function M.setup(options)
+  config.setup(options)
 
-	-- Initialize modules with config
-	tasks.setup(M.config)
-	-- tag_tracker.setup(M.config) -- Not implemented yet
-	-- interface.setup(M.config) -- Not implemented yet
-	dashboard.setup(M.config)
+  -- Setup modules
+  debug_flg = debug.setup(config.options.debug)
+  interface.setup()
+  dashboard.setup()
+  markdown.setup()
+
+  -- Setup the autocommands around the project
+  project.setup()
+
+  log()
+  -- if options then
+  --   log("User config: ", options)
+  -- else
+  --   log("No user config")
+  -- end
+
+  M.project = project.get_project_name()
+  log("Project: ", M.project)
 
 	-- Set up commands
 	M.create_commands()
 
 	-- Set up autocommands for tag tracking
 	-- M.create_autocommands()
-
-	-- to be replaced with a standard logging library
-	utils.debug = M.config.debug
-	utils.log_message("init.M.setup", "------------------------------------")
-	utils.log_message("init.M.setup", "Setting up Taskforge") -- Debug print
-	utils.get_dashboard_config = M.config.get_dashboard_config
-
-	setup_commands()
 end
 
 return M

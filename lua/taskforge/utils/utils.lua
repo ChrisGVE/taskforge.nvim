@@ -1,6 +1,11 @@
+-- Copyright (c) 2025 Christian C. Berclaz
+--
+-- MIT License
+--
+local api = vim.api
+local fn = vim.fn
+
 local M = {}
-M.debug = true
-M.get_dashboard_config = nil
 --
 -- Function to read file contents
 function M.read_file(path)
@@ -16,7 +21,7 @@ end
 -- Function to check if the Dashboard buffer is open
 function M.is_dashboard_open()
 	-- Get the current buffer name
-	local bufname = vim.api.nvim_buf_get_name(0)
+	local bufname = api.nvim_buf_get_name(0)
 
 	-- Get the current buffer filetype
 	local buftype = vim.bo.filetype
@@ -34,8 +39,8 @@ function M.refresh_dashboard()
 		if Snacks and Snacks.dashboard and type(Snacks.dashboard.update) == "function" then
 			Snacks.dashboard.update()
 		elseif M.get_dashboard_config and type(M.get_dashboard_config) == "function" then
-			local bufnr = vim.api.nvim_get_current_buf()
-			vim.api.nvim_buf_delete(bufnr, { force = true })
+			local bufnr = api.nvim_get_current_buf()
+			api.nvim_buf_delete(bufnr, { force = true })
 			local dashboard = require("dashboard")
 			dashboard.setup(M.get_dashboard_config())
 			dashboard:instance()
@@ -43,28 +48,23 @@ function M.refresh_dashboard()
 	end
 end
 
+---Clips text to given width and if the text is longer than given width it will add "..."
+---@param text string text to clip
+---@param width number max width that text can have
+---@return string text Clipped text
+function M.clip_text(text, width)
+	local r_len = M.utf8len(text)
+	if r_len > width then
+		text = text:sub(1, (width - r_len) - 4) .. "..."
+	end
+	return text
+end
+
 function M.merge_arrays(a, b)
 	local result = {}
 	table.move(a, 1, #a, 1, result)
 	table.move(b, 1, #b, #a + 1, result)
 	return result
-end
-
-function M.log_message(module_name, message)
-	if not M.debug then
-		return
-	end
-	local log_file = vim.fn.expand("~/.local/share/nvim/taskforge-nvim/taskforge.log")
-	local log_dir = vim.fn.fnamemodify(log_file, ":h")
-	if vim.fn.isdirectory(log_dir) == 0 then
-		vim.fn.mkdir(log_dir, "p")
-	end
-	local log_entry = os.date("%Y-%m-%d %H:%M:%S") .. "\t" .. module_name .. "\t" .. message .. "\n"
-	local file = io.open(log_file, "a")
-	if file then
-		file:write(log_entry)
-		file:close()
-	end
 end
 
 --- Escapes special characters in a pattern
@@ -179,11 +179,11 @@ function M.align_center(text, width)
 end
 
 function M.get_os_date(datetime_str, format_str)
-	M.log_message("utils.M.get_os_date", "datetime_str: " .. datetime_str)
+	log("utils.M.get_os_date", "datetime_str: " .. datetime_str)
 	if not format_str then
 		format_str = "%Y-%m-%d %H:%M:%S"
 	end
-	M.log_message("utils.M.get_os_date", "format_str: " .. format_str)
+	log("utils.M.get_os_date", "format_str: " .. format_str)
 	return os.date(format_str, M.parse_datetime(datetime_str))
 end
 
