@@ -20,9 +20,9 @@ local config = require("taskforge.config")
 local api = vim.api
 local fn = vim.fn
 
-local debug_flg = false
 
 --- Debugging global hooks 
+local debug_flg = false
 ---@param show? boolean
 _G.dd = function(show, ...)
   if debug_flg then
