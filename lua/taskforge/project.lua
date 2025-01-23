@@ -5,9 +5,9 @@
 local M = {}
 
 local utils = require('taskforge.utils.utils')
-local path = require('taskforge.utils.path')
 local glob = require('taskforge.utils.globtopattern')
 local config = require('taskforge.config')
+local path = require("taskforge.utils.path")
 local uv = vim.loop
 local api = vim.api
 local fn = vim.fn
@@ -20,7 +20,7 @@ function M.find_lsp_root()
   local buf_ft = api.nvim_get_option_value("filetype",{})
   local clients = vim.lsp.get_clients()
 
-  log(buf_ft, clients)
+  -- log(buf_ft, clients)
 
   if next(clients) == nil then
     return nil
@@ -55,7 +55,7 @@ function M.find_pattern_root()
     search_dir = search_dir:gsub("\\", "/")
   end
 
-  log("search dir:", search_dir)
+  -- log("search dir:", search_dir)
 
   local last_dir_cache = ""
   local curr_dir_cache = {}
@@ -142,11 +142,11 @@ function M.find_pattern_root()
   end
 
   while true do
-    log("search dir: ", search_dir)
+    -- log("search dir: ", search_dir)
     for pattern_type, pattern_list in pairs(config.options.project.root_patterns) do
-      log("type: ", pattern_type)
+      -- log("type: ", pattern_type)
       for _, pattern in ipairs(pattern_list) do
-        log("pattern: ", pattern)
+        -- log("pattern: ", pattern)
         local exclude = false
         if pattern:sub(1, 1) == "!" then
           exclude = true
@@ -178,12 +178,12 @@ function M.get_project_root()
   for _, detection_method in ipairs(config.options.project.detection_methods) do
     if detection_method == "lsp" then
       local root, lsp_name = M.find_lsp_root()
-      if root ~= nil then
+      if root ~= nil and not path.is_excluded(root) then
         return root, lsp_name, "lsp"
       end
     elseif detection_method == "pattern" then
       local root, pattern_type, method = M.find_pattern_root()
-      if root ~= nil then
+      if root ~= nil and not path.is_excluded(root) then
         return root, pattern_type, method
       end
     end
@@ -193,19 +193,19 @@ end
 
 function M.get_project_name()
   local root, pattern_type, method = M.get_project_root()
-  log(root, pattern_type, method)
+  -- log(root, pattern_type, method)
+  
+  if root == nil or root == "" then
+    return nil
+  end
 
   local project_name = ""
   if root ~= nil then
     -- default value
     project_name = root:match("/*.*/(.*)$")
-    log("default:", project_name)
+    -- log("default name:", project_name)
   end
 
-
-  if root == nil or root == "" then
-    return nil
-  end
 
   if method == "json" then
     if config.options.project.json_tags ~= nil and #config.options.project.json_tags ~= 0 then
@@ -216,7 +216,7 @@ function M.get_project_name()
           for _, tag in ipairs(config.options.project.json_tags) do
             if json[tag] ~= nil then
               project_name = json[tag]
-              log("json:", project_name)
+              -- log("json:", project_name)
             end
           end
         end
@@ -242,10 +242,10 @@ function M.get_project_name()
   end
 
   -- we look for synonmyms and if found we return the main name
-  log("project synonyms: ", config.options.project.project_synonyms, #config.options.project.project_synonyms)
+  -- log("project synonyms: ", config.options.project.project_synonyms, #config.options.project.project_synonyms)
   if config.options.project.project_synonyms ~= nil then
     for project, synonym in pairs(config.options.project.project_synonyms) do
-      log("Synonym:", project, synonym)
+      -- log("Synonym:", project, synonym)
       if synonym ~= nil then
         if type(synonym) ~= nil and type(synonym) == "string" and project_name == synonym then
           return project

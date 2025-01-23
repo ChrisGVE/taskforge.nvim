@@ -41,6 +41,8 @@ M.defaults = {
         "project.json",
         "package.json",
       },
+      exclude_dirs = { -- folders which should be excluded from the search (hence the project name would fall back to its default)
+      },
     },
     -- extract project name from json file
     json_tags = { "project", "name" },

@@ -1,4 +1,4 @@
-local config = require("project_nvim.config")
+local config = require("taskforge.config")
 local uv = vim.loop
 local M = {}
 
@@ -21,7 +21,10 @@ function M.create_scaffolding(callback)
 end
 
 function M.is_excluded(dir)
-  for _, dir_pattern in ipairs(config.options.exclude_dirs) do
+  if config.options.project.root_patterns.exclude_dirs == nil then
+    return false
+  end
+  for _, dir_pattern in ipairs(config.options.project.root_patterns.exclude_dirs) do
     if dir:match(dir_pattern) ~= nil then
       return true
     end
