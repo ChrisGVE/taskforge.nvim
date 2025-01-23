@@ -96,7 +96,7 @@ local function get_columns_width(task_list, other_tasks, maxwidth)
 end
 
 function M.get_tasks()
-	local main_tasts = tw_interface.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
+	local main_tasks = tw_interface.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
 	local other_tasks = {}
 	if
 		M.project ~= nil
@@ -105,7 +105,7 @@ function M.get_tasks()
 	then
 		other_tasks = tw_interface.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
 	end
-	return main_tasts, other_tasks
+	return main_tasks, other_tasks
 end
 
 function M.format_tasks(max_width)
