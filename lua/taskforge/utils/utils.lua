@@ -179,11 +179,11 @@ function M.align_center(text, width)
 end
 
 function M.get_os_date(datetime_str, format_str)
-	log("utils.M.get_os_date", "datetime_str: " .. datetime_str)
+	-- log("utils.M.get_os_date", "datetime_str: " .. datetime_str)
 	if not format_str then
 		format_str = "%Y-%m-%d %H:%M:%S"
 	end
-	log("utils.M.get_os_date", "format_str: " .. format_str)
+	-- log("utils.M.get_os_date", "format_str: " .. format_str)
 	return os.date(format_str, M.parse_datetime(datetime_str))
 end
 
