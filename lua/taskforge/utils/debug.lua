@@ -156,7 +156,7 @@ end
 -- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
 -- ```
 function M.log(...)
-  local level = 3
+  local level = 3 -- level 3 because we expect the caller to be a global function
   local caller_fn, caller_src = caller(level, debug.getinfo(level, debug_query))
   local file = M.debug_config.log_file or "./debug.log"
   local fd = io.open(file, "a+")
