@@ -5,7 +5,7 @@
 local M = {}
 
 local utils = require("taskforge.utils.utils")
-local interface = require("taskforge.interface")
+local tw_interface = require("taskforge.tw-interface")
 local project = require("taskforge.project")
 local config = require("taskforge.config")
 local api = vim.api
@@ -43,7 +43,7 @@ local function sanitize_tasks(task_list)
 			if k == "urgency" then
 				task[k] = string.format("%.2f", v)
 			elseif k == "due" then
-				log("[" .. task["id"] .. "]" .. "due (v): " .. v)
+				-- log("[" .. task["id"] .. "]" .. "due (v): " .. v)
 				local current_year = os.date("%Y")
 				local pattern = "^" .. current_year .. "%-(.*)"
 				local date_string = tostring(utils.get_os_date(v, "%Y-%m-%d"))
@@ -61,7 +61,7 @@ local function sanitize_tasks(task_list)
 end
 
 local function get_columns_width(task_list, other_tasks, maxwidth)
-	log()
+	-- log()
 	local columnsWidth = {}
 	-- TODO: Check if this is really necessary, also it should be independent from whether we target snacks.nvim or dashboard.nvim
 	local max_width = maxwidth or config.options.dashboard.format.max_width
@@ -96,14 +96,14 @@ local function get_columns_width(task_list, other_tasks, maxwidth)
 end
 
 function M.get_tasks()
-	local main_tasts = interface.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
+	local main_tasts = tw_interface.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
 	local other_tasks = {}
 	if
 		M.project ~= nil
 		and config.options.dashboard.format.non_project_limit ~= nil
 		and config.options.dashboard.format.non_project_limit > 0
 	then
-		other_tasks = interface.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
+		other_tasks = tw_interface.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
 	end
 	return main_tasts, other_tasks
 end
@@ -251,7 +251,7 @@ end
 local function hl_tasks()
 	setup_hl_groups()
 	local lines = api.nvim_buf_get_lines(0, 0, -1, false)
-  log()
+  -- log()
 	log("Lines: " .. vim.inspect(urgent_tasks))
 	for i, line in ipairs(lines) do
 		if utils.in_table(urgent_tasks, line) then
@@ -263,7 +263,7 @@ local function hl_tasks()
 end
 
 function M.get_snacks_dashboard_tasks()
-  log()
+  -- log()
 
 	local section = {}
 	section.icon = config.options.dashboard.snacks_options.icon
@@ -278,9 +278,9 @@ function M.get_snacks_dashboard_tasks()
 end
 
 function M.setup()
-  log()
+  -- log()
 	M.project = project.get_project_name()
-  log("Project: ", M.project)
+  -- log("Project: ", M.project)
 
 	api.nvim_create_autocmd("User", {
 		pattern = "DashboardLoaded",
