@@ -101,7 +101,7 @@ local function setup_commands()
 	-- 	return { "project:work", "status:pending", "priority:H", "due.before:today", "tag:home" }
 	-- end
 	api.nvim_create_user_command("Task", function(opts)
-		require("taskforge.interface").display_tasks(unpack(opts.fargs))
+		require("taskforge.tw-interface").display_tasks(unpack(opts.fargs))
 	end, { nargs = nil })
 end
 
@@ -178,7 +178,7 @@ function M.test()
 end
 
 function M.setup()
-	log()
+	-- log()
 	setup_commands()
 end
 
