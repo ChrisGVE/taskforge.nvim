@@ -7,11 +7,10 @@
 local M = {}
 
 -- Module imports
-local tasks = require("taskforge.interface")
--- local tag_tracker = require("taskforge.tag_tracker") -- not implemented yet
-local interface = require("taskforge.interface")
+local main_ui = require("taskforge.main-ui")
+local tag_tracker = require("taskforge.tag-tracker") 
+local tw_interface = require("taskforge.tw-interface")
 local dashboard = require("taskforge.dashboard")
-local utils = require("taskforge.utils.utils")
 local markdown = require("taskforge.markdown")
 local debug = require("taskforge.utils.debug")
 local project = require("taskforge.project")
@@ -90,18 +89,18 @@ M.project = nil
 
 -- Command registration
 function M.create_commands()
-	-- api.nvim_create_user_command("TaskForge", function(opts)
+	-- api.nvim_create_user_command("Taskforge", function(opts)
 	-- 	interface.toggle()
 	-- end, {})
 	--
-	-- api.nvim_create_user_command("TaskForgeAdd", function(opts)
+	-- api.nvim_create_user_command("Taskforge Add", function(opts)
 	-- 	interface.add_task(opts.args)
 	-- end, { nargs = "*" })
 end
 
 -- Autocommand setup for tag tracking
 -- function M.create_autocommands()
--- 	local group = api.nvim_create_augroup("TaskForge", { clear = true })
+-- 	local group = api.nvim_create_augroup("Taskforge", { clear = true })
 --
 -- 	api.nvim_create_autocmd({ "BufEnter" }, {
 -- 		group = group,
@@ -148,7 +147,7 @@ function M.setup(options)
 
   -- Setup modules
   debug_flg = debug.setup(config.options.debug)
-  interface.setup()
+  tw_interface.setup()
   dashboard.setup()
   markdown.setup()
 
