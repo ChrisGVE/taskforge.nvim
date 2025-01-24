@@ -11,7 +11,6 @@ local main_ui = require("taskforge.main-ui")
 local tag_tracker = require("taskforge.tag-tracker") 
 local tw_interface = require("taskforge.tw-interface")
 local dashboard = require("taskforge.dashboard")
-local markdown = require("taskforge.markdown")
 local debug = require("taskforge.utils.debug")
 local project = require("taskforge.project")
 local config = require("taskforge.config")
@@ -87,17 +86,6 @@ end
 
 M.project = nil
 
--- Command registration
-function M.create_commands()
-	-- api.nvim_create_user_command("Taskforge", function(opts)
-	-- 	interface.toggle()
-	-- end, {})
-	--
-	-- api.nvim_create_user_command("Taskforge Add", function(opts)
-	-- 	interface.add_task(opts.args)
-	-- end, { nargs = "*" })
-end
-
 -- Autocommand setup for tag tracking
 -- function M.create_autocommands()
 -- 	local group = api.nvim_create_augroup("Taskforge", { clear = true })
@@ -135,7 +123,7 @@ end
 
 -- return the task section for Snacks.nvim dashboard
 function M.get_snacks_dashboard_tasks()
-  log()
+  -- log()
 	return dashboard.get_snacks_dashboard_tasks()
 end
 
@@ -149,12 +137,11 @@ function M.setup(options)
   debug_flg = debug.setup(config.options.debug)
   tw_interface.setup()
   dashboard.setup()
-  markdown.setup()
 
   -- Setup the autocommands around the project
   project.setup()
 
-  log()
+  -- log()
   -- if options then
   --   log("User config: ", options)
   -- else
@@ -162,12 +149,9 @@ function M.setup(options)
   -- end
 
   M.project = project.get_project_name()
-  log("Project: ", M.project)
+  -- log("Project: ", M.project)
 
-	-- Set up commands
-	M.create_commands()
-
-	-- Set up autocommands for tag tracking
+	-- Set up autocommands
 	-- M.create_autocommands()
 end
 

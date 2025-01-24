@@ -6,10 +6,10 @@ require("taskforge")
 --   return
 -- end
 
--- local subcommands = require('taskforge.subcommands')
+local subcommands = require('taskforge.subcommands')
 -- local taskforge = require('taskforge')
 
--- vim.api.nvim_create_user_command('TaskForge', subcommands.run, { nargs = 1, bang = true, complete = subcommands.complete, desc = 'Run Task Forge command' })
+vim.api.nvim_create_user_command('TaskForge', subcommands.run, { nargs = 1, bang = true, complete = subcommands.complete, desc = 'Run Task Forge command' })
 
 -- local taskforge_group = vim.api.nvim_create_augroup('TaskForge', {})
 -- vim.api.nvim_create_autocmd({ 'VimEnter' }, {
