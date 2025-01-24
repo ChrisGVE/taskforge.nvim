@@ -2,13 +2,14 @@
 --
 -- MIT License
 
-
 -- Core modules
 local M = {}
 
+-- _G.Taskforge = M
+
 -- Module imports
 local main_ui = require("taskforge.main-ui")
-local tag_tracker = require("taskforge.tag-tracker") 
+local tag_tracker = require("taskforge.tag-tracker")
 local tw_interface = require("taskforge.tw-interface")
 local dashboard = require("taskforge.dashboard")
 local debug = require("taskforge.utils.debug")
@@ -18,8 +19,7 @@ local config = require("taskforge.config")
 local api = vim.api
 local fn = vim.fn
 
-
---- Debugging global hooks 
+--- Debugging global hooks
 local debug_flg = false
 ---@param show? boolean
 _G.dd = function(show, ...)
@@ -31,7 +31,7 @@ end
 ---@param show? boolean
 ---@param msg? string|string[]
 ---@param opts? snacks.notify.Opts
-_G.bt = function(show, msg,opts)
+_G.bt = function(show, msg, opts)
   if debug_flg then
     debug.backtrace(show, msg, opts)
   end
@@ -118,13 +118,13 @@ M.project = nil
 
 -- return the task section for dashboard.nvim
 function M.get_dashboard_tasks()
-	return dashboard.get_tasks()
+  return dashboard.get_tasks()
 end
 
 -- return the task section for Snacks.nvim dashboard
 function M.get_snacks_dashboard_tasks()
   -- log()
-	return dashboard.get_snacks_dashboard_tasks()
+  return dashboard.get_snacks_dashboard_tasks()
 end
 
 -- Core setup function
@@ -135,7 +135,6 @@ function M.setup(options)
 
   -- Setup modules
   debug_flg = debug.setup(config.options.debug)
-  tw_interface.setup()
   dashboard.setup()
 
   -- Setup the autocommands around the project
@@ -151,8 +150,8 @@ function M.setup(options)
   M.project = project.get_project_name()
   -- log("Project: ", M.project)
 
-	-- Set up autocommands
-	-- M.create_autocommands()
+  -- Set up autocommands
+  -- M.create_autocommands()
 end
 
 return M
