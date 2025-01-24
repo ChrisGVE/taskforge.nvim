@@ -56,6 +56,12 @@ M.defaults = {
 
 	-- Tag tracking configuration
 	tags = {
+    -- enable tag tracking
+    enable = true,
+    -- auto refresh the task list for the current project
+    auto_refresh = true,
+    -- require confirmation for ask and manual, if set to false ask will behave like auto and manual won't require a confirmation
+    confirmation = true,
 		-- languages for which the plugin is active
 		enabled_ft = {
 			"c",
