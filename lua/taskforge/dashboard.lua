@@ -5,7 +5,7 @@
 local M = {}
 
 local utils = require("taskforge.utils.utils")
-local tw_interface = require("taskforge.tw-interface")
+local tasks = require("taskforge.tasks")
 local project = require("taskforge.project")
 local config = require("taskforge.config")
 local api = vim.api
@@ -94,14 +94,14 @@ local function get_columns_width(task_list, other_tasks, maxwidth)
 end
 
 function M.get_tasks()
-  local main_tasks = tw_interface.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
+  local main_tasks = tasks.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
   local other_tasks = {}
   if
     M.project ~= nil
     and config.options.dashboard.format.non_project_limit ~= nil
     and config.options.dashboard.format.non_project_limit > 0
   then
-    other_tasks = tw_interface.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
+    other_tasks = tasks.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
   end
   return main_tasks, other_tasks
 end

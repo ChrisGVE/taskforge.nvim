@@ -8,9 +8,9 @@ local M = {}
 -- _G.Taskforge = M
 
 -- Module imports
-local main_ui = require("taskforge.main-ui")
+local interface = require("taskforge.interface")
 local tag_tracker = require("taskforge.tag-tracker")
-local tw_interface = require("taskforge.tw-interface")
+local tasks = require("taskforge.tasks")
 local dashboard = require("taskforge.dashboard")
 local debug = require("taskforge.utils.debug")
 local project = require("taskforge.project")
