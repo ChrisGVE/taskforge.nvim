@@ -7,20 +7,23 @@
 -- local AutoloadMode = require('session_manager.config').AutoloadMode
 -- local utils = require('session_manager.utils')
 -- local Job = require('plenary.job')
-local markdown = require('taskforge.markdown')
+local markdown = require("taskforge.markdown")
+local interface = require("taskforge.interface")
 local commands = {}
 
 -- Displays action selection menu for :SessionManager
 function commands.available_commands()
   local cmds = {}
   for cmd, _ in pairs(commands) do
-    if cmd ~= 'available_commands' then
+    if cmd ~= "available_commands" then
       table.insert(cmds, cmd)
     end
   end
   vim.ui.select(cmds, {
-    prompt = 'Task Forge',
-    format_item = function(item) return item:sub(1, 1):upper() .. item:sub(2):gsub('_', ' ') end,
+    prompt = "Task Forge",
+    format_item = function(item)
+      return item:sub(1, 1):upper() .. item:sub(2):gsub("_", " ")
+    end,
   }, function(item)
     if item then
       commands[item]()
@@ -30,9 +33,9 @@ end
 
 -- create a markdown file or insert the tasks in the current markdown buffer
 function commands.markdown()
-	vim.api.nvim_create_user_command("Taskforge.markdown", function(opts)
-		markdown.render_markdown_todos(unpack(opts.fargs))
-	end, { nargs = "*" })
+  vim.api.nvim_create_user_command("Taskforge.markdown", function(opts)
+    markdown.render_markdown_todos(unpack(opts.fargs))
+  end, { nargs = "*" })
 end
 
 -- toggle autotracking of tags for the current project
@@ -56,6 +59,11 @@ function commands.checkhealth()
   --   end
   -- end
   -- return false
+end
+
+-- Instantiate taskwarrior-tui
+function commands.taskwarrior_tui()
+  interface.open_tt()
 end
 
 -- Launch the interface to manage all tasks
@@ -145,11 +153,9 @@ function commands.done()
 end
 
 -- Toggle the confirmation for creation/done tasks
-function commands.toggle_confirmation()
-end
+function commands.toggle_confirmation() end
 
 -- Toggle the autorefresh of the task cache for the current project
-function commands.toggle_autorefresh()
-end
+function commands.toggle_autorefresh() end
 
 return commands

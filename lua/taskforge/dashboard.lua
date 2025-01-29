@@ -8,6 +8,7 @@ local utils = require("taskforge.utils.utils")
 local tasks = require("taskforge.tasks")
 local project = require("taskforge.project")
 local config = require("taskforge.config")
+local interface = require("taskforge.interface")
 local api = vim.api
 
 local urgent_tasks = {}
@@ -270,19 +271,7 @@ function M.get_snacks_dashboard_tasks()
   if config.options.dashboard.snacks_options.key ~= nil and config.options.dashboard.snacks_options.action ~= nil then
     if config.options.dashboard.snacks_options.action == "taskwarrior-tui" then
       title.action = function()
-        local cmd = { "taskwarrior-tui" }
-        local opts = {
-          interactive = true,
-          win = {
-            style = "terminal",
-            width = 0.9,
-            height = 0.9,
-            border = "rounded",
-            title = "Taskwarrior-tui",
-            title_pos = "center",
-          },
-        }
-        Snacks.terminal(cmd, opts)
+        interface.open_tt()
       end
     elseif config.options.dashboard.snacks_options.action == "project" then
       title.action = function()
