@@ -2,10 +2,40 @@
 --
 -- MIT License
 
+-- Check that we are running neovim v0.10.0
+local function check_nvim_version(min_major, min_minor, min_patch)
+  local v = vim.version()
+  if
+    v.major < min_major
+    or (v.major == min_major and v.minor < min_minor)
+    or (v.major == min_major and v.minor == min_minor and v.patch < min_patch)
+  then
+    vim.api.nvim_err_writeln(
+      string.format(
+        "[Taskforge] Neovim v%d.%d.%d+ is required. You are using v%d.%d.%d.",
+        min_major,
+        min_minor,
+        min_patch,
+        v.major,
+        v.minor,
+        v.patch
+      )
+    )
+    return false
+  end
+  return true
+end
+
+-- Stop execution if Neovim is too old
+if not check_nvim_version(0, 10, 0) then
+  return {}
+end
+
 -- Core modules
 local M = {}
 
 -- _G.Taskforge = M
+_G.Taskforge_init = false
 
 -- Module imports
 local interface = require("taskforge.interface")
@@ -152,6 +182,7 @@ function M.setup(options)
 
   -- Set up autocommands
   -- M.create_autocommands()
+  _G.Taskforge_init = true
 end
 
 return M
