@@ -9,6 +9,7 @@
 -- local Job = require('plenary.job')
 local markdown = require("taskforge.markdown")
 local interface = require("taskforge.interface")
+local utils = require("taskforge.utils.utils")
 local commands = {}
 
 -- Displays action selection menu for :SessionManager
@@ -36,6 +37,14 @@ function commands.markdown()
   vim.api.nvim_create_user_command("Taskforge.markdown", function(opts)
     markdown.render_markdown_todos(unpack(opts.fargs))
   end, { nargs = "*" })
+end
+
+-- configure taskwarrior
+function commands.taskwarrior_config()
+  local cmd = "task"
+  utils.exec(cmd, { "config", "verbose", "off" })
+  utils.exec(cmd, { "config", "confirmation", "off" })
+  utils.exec(cmd, { "config", "editor", "nvim" })
 end
 
 -- toggle autotracking of tags for the current project
