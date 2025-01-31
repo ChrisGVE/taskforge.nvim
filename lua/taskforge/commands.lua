@@ -42,7 +42,7 @@ end
 -- configure taskwarrior
 function commands.taskwarrior_config()
   local cmd = "task"
-  utils.exec(cmd, { "config", "verbose", "off" })
+  utils.exec(cmd, { "config", "verbose", "no" })
   utils.exec(cmd, { "config", "confirmation", "off" })
   utils.exec(cmd, { "config", "editor", "nvim" })
 end
