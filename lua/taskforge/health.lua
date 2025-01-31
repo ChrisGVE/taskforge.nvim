@@ -1,33 +1,33 @@
 local M = {}
 
 local utils = require("taskforge.utils.utils")
-local debug = require("taskforge.utils.debug")
+local config = require("taskforge.config")
 
 function M.check()
-  local has_taskwarrior = vim.fn.executable("task") == 1
-  local has_taskwarrior_tui = vim.fn.executable("taskwarrior-tui") == 1
-
   vim.health.start("Taskforge Health Check")
 
+  -- Check if necessary Neovim features exist
+  if vim.fn.has("nvim-0.10") == 1 then
+    vim.health.ok("Neovim version is compatible.")
+  else
+    vim.health.warn("Neovim 0.10 or higher is recommended for best compatibility.")
+  end
+
   -- Check for TaskWarrior dependency
-  if has_taskwarrior then
+  if config.cache.has_taskwarrior then
     vim.health.ok("TaskWarrior is installed and available.")
   else
     vim.health.error("TaskWarrior is not installed. Install it to use this plugin.")
   end
 
   -- Check for Taskwarrior configuration
-  if has_taskwarrior then
+  if config.cache.has_taskwarrior then
     local cmd = "task"
     local opts = { separators = { "\n", " " } }
 
     local confirmation = utils.exec(cmd, { "_get", "rc.confirmation" }, opts) --[[@as Taskforge.utils.Result]]
     local verbose = utils.exec(cmd, { "_get", "rc.verbose" }, opts) --[[@as Taskforge.utils.Result]]
     local editor = utils.exec(cmd, { "_get", "rc.editor" }, opts) --[[@as Taskforge.utils.Result]]
-
-    log(confirmation)
-    log(verbose)
-    log(editor)
 
     local nok = false
 
@@ -50,22 +50,24 @@ function M.check()
       vim.health.ok("TaskWarrior configuration.editor is set to neovim.")
     end
     if nok then
-      vim.health.warn("Please consider running `:Taskforge taskwarrior_config` to address these configuration issues.")
+      vim.health.warn(
+        "\nPlease consider running `:Taskforge taskwarrior_config` to address these configuration issues.\n"
+      )
     end
   end
 
+  -- Check for TaskOpen dependency
+  if config.cache.has_taskopen then
+    vim.health.ok("TaskOpen is installed and available.")
+  else
+    vim.health.error("TaskOpen is not installed.")
+  end
+
   -- Check for Taskwarrior-tui dependency
-  if has_taskwarrior_tui then
+  if config.cache.has_taskwarrior_tui then
     vim.health.ok("Taskwarrior-tui is installed and available.")
   else
     vim.health.warn("Taskwarrior-tui is not installed.")
-  end
-
-  -- Check if necessary Neovim features exist
-  if vim.fn.has("nvim-0.10") == 1 then
-    vim.health.ok("Neovim version is compatible.")
-  else
-    vim.health.warn("Neovim 0.10 or higher is recommended for best compatibility.")
   end
 
   -- Check if plugin has been initialized properly
