@@ -1,7 +1,7 @@
 local M = {}
 
-local Result = require("taskforge.utils.result")
-local Utils = require("taskforge.utils.utils")
+local utils = require("taskforge.utils.utils")
+local debug = require("taskforge.utils.debug")
 
 function M.check()
   local has_taskwarrior = vim.fn.executable("task") == 1
@@ -18,11 +18,39 @@ function M.check()
 
   -- Check for Taskwarrior configuration
   if has_taskwarrior then
-    local taskrc = Utils.get_taskrc()
-    if taskrc then
-      vim.health.ok("TaskWarrior configuration file found.")
+    local cmd = "task"
+    local opts = { separators = { "\n", " " } }
+
+    local confirmation = utils.exec(cmd, { "_get", "rc.confirmation" }, opts) --[[@as Taskforge.utils.Result]]
+    local verbose = utils.exec(cmd, { "_get", "rc.verbose" }, opts) --[[@as Taskforge.utils.Result]]
+    local editor = utils.exec(cmd, { "_get", "rc.editor" }, opts) --[[@as Taskforge.utils.Result]]
+
+    log(confirmation)
+    log(verbose)
+    log(editor)
+
+    local nok = false
+
+    if confirmation == nil or confirmation.err or confirmation.value.stdout ~= "off" then
+      vim.health.warn("TaskWarrior configuration.confirmation is on. This may cause unexpected behavior.")
+      nok = true
     else
-      vim.health.warn("TaskWarrior configuration file not found.")
+      vim.health.ok("TaskWarrior configuration.confirmation is on.")
+    end
+    if verbose == nil or verbose.err or (verbose.value.stdout ~= "no" and verbose.value.stdout ~= "nothing") then
+      vim.health.warn("TaskWarrior configuration.verbose is on. This may cause unexpected behavior.")
+      nok = true
+    else
+      vim.health.ok("TaskWarrior configuration.verbose is on.")
+    end
+    if editor == nil or editor.err or (editor.value.stdout == "" and editor.value.stdout ~= "nvim") then
+      vim.health.warn("TaskWarrior configuration.editor is not set to neovim. This may cause unexpected behavior.")
+      nok = true
+    else
+      vim.health.ok("TaskWarrior configuration.editor is set to neovim.")
+    end
+    if nok then
+      vim.health.warn("Please consider running `:Taskforge taskwarrior_config` to address these configuration issues.")
     end
   end
 
