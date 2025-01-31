@@ -2,7 +2,7 @@ require("taskforge")
 
 local subcommands = require("taskforge.subcommands")
 vim.api.nvim_create_user_command(
-  "TaskForge",
+  "Taskforge",
   subcommands.run,
   { nargs = 1, bang = true, complete = subcommands.complete, desc = "Run Task Forge command" }
 )
