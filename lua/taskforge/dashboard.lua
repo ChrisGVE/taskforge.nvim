@@ -154,6 +154,9 @@ function M.process_tasks_for_snacks()
   local task_list, other_tasks = M.get_tasks()
   local columnsWidth = get_columns_width(task_list, other_tasks, max_width)
 
+  table.insert(lines, { M.project, hl = hl_normal, width = max_width - 1, align = "center" })
+  table.insert(lines, { "\n", hl = hl_normal })
+
   for _, task in ipairs(task_list) do
     local line = parse_task(task, columnsWidth)
     local hl = hl_normal
