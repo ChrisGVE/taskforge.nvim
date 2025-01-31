@@ -1,4 +1,6 @@
 local commands = require("taskforge.commands")
+local utils = require("taskforge.utils.utils")
+
 local subcommands = {}
 
 function subcommands.complete(arg, cmd_line)
