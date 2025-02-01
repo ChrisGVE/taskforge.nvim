@@ -107,6 +107,17 @@ function M.get_tasks()
   return main_tasks, other_tasks
 end
 
+function M.get_dashboard_tasks()
+  local dashboard_tasks = {}
+  tasks = M.get_tasks()
+  if tasks ~= nil then
+    for _, t in ipairs(tasks) do
+      table.insert(dashboard_tasks, t)
+    end
+  end
+  return dashboard_tasks
+end
+
 function M.format_tasks(max_width)
   local lines = {}
   local task_list, other_tasks = M.get_tasks()
@@ -154,8 +165,10 @@ function M.process_tasks_for_snacks()
   local task_list, other_tasks = M.get_tasks()
   local columnsWidth = get_columns_width(task_list, other_tasks, max_width)
 
-  table.insert(lines, { M.project, hl = hl_normal, width = max_width - 1, align = "center" })
-  table.insert(lines, { "\n", hl = hl_normal })
+  if M.project ~= nil then
+    table.insert(lines, { M.project, hl = hl_normal, width = max_width - 1, align = "center" })
+    table.insert(lines, { "\n", hl = hl_normal })
+  end
 
   for _, task in ipairs(task_list) do
     local line = parse_task(task, columnsWidth)
