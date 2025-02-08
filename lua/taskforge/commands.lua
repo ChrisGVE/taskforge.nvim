@@ -57,19 +57,6 @@ function commands.toggle_tracking()
   -- return false
 end
 
--- check if all is good for TaskForge
-function commands.checkhealth()
-  -- local cwd = vim.uv.cwd()
-  -- if cwd then
-  --   local session = config.dir_to_session_filename(cwd)
-  --   if session:exists() then
-  --     utils.load_session(session.filename, discard_current)
-  --     return true
-  --   end
-  -- end
-  -- return false
-end
-
 -- Instantiate taskwarrior-tui
 function commands.taskwarrior_tui()
   interface.open_tt()

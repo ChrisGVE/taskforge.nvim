@@ -3,16 +3,41 @@
 -- MIT License
 --
 local M = {}
-local config = require("taskforge.config")
+local config = require("taskforge.utils.config")
+local cache = require("taskforge.utils.cache")
 local utils = require("taskforge.utils.utils")
-local api = vim.api
-local fn = vim.fn
 local todo = {}
 
-local function get_urgent(limit, project, exclude)
+M.tasks = {}
+M.tasks_status = "invalid"
+
+local function process_tasks(result)
+  if result.ok then
+    vim.schedule(function()
+      local json_text = table.concat(result.value.stdout, "\n")
+      _, M.tasks = pcall(vim.fn.json_decode, json_text)
+      M.tasks_status = "valid"
+    end)
+  else
+    M.tasks = {}
+  end
+end
+
+local function get_tasks_async(filter, include_completed)
+  M.tasks_status = "refreshing"
+  local cmd = "task"
+  local args = { filter or "", "export" }
+  if not include_completed then
+    args[#args + 1] = "long"
+  end
+  local opts = { async = true, separators = nil, remove_sep = nil }
+  return utils.exec(cmd, args, opts, process_tasks)
+end
+
+local function get_tasks(limit, project, exclude)
   local prj_string = ""
-  if project ~= nil then
-    if exclude ~= nil and exclude == true then
+  if project then
+    if exclude and exclude == true then
       prj_string = "and project.not:" .. project
     else
       prj_string = "and project:" .. project
@@ -28,7 +53,7 @@ local function get_urgent(limit, project, exclude)
   if result == nil then
     return {}
   end
-  local tasks = fn.json_decode(result)
+  local tasks = vim.fn.json_decode(result)
   utils.sort_by_column(tasks, "urgency")
   if limit > 0 then
     return utils.slice(tasks, 1, limit)
@@ -36,9 +61,9 @@ local function get_urgent(limit, project, exclude)
   return tasks
 end
 
-function M.tasks_get_urgent(limit, project, exclude)
-  limit = limit or config.options.dashboard.limit
-  return get_urgent(limit, project, exclude)
+function M.get_dashboard_tasks(limit, project, exclude)
+  limit = limit or config.dashboard.limit
+  return get_tasks(limit, project, exclude)
 end
 
 local function build_task_dict(tasks)
@@ -92,65 +117,6 @@ local function add_todo(task, task_dict, indent)
   end
 end
 
--- local function setup_commands()
--- api.nvim_create_user_command("Task", function(opts)
--- 	require("taskforge.tasks").display_tasks(unpack(opts.fargs))
--- end, { nargs = "*", complete = "custom,v:lua.complete_task_args" })
--- _G.complete_task_args = function(arglead, cmdline, cursorpos)
--- 	-- Provide a list of taskwarrior arguments for completion
--- 	return { "project:work", "status:pending", "priority:H", "due.before:today", "tag:home" }
--- end
--- api.nvim_create_user_command("Task", function(opts)
--- 	require("taskforge.tw-interface").display_tasks(unpack(opts.fargs))
--- end, { nargs = nil })
--- end
-
--- function M.display_tasks(...)
--- 	local args = { ... }
--- 	local cmd = "task"
--- 	for _, arg in ipairs(args) do
--- 		cmd = cmd .. " " .. arg
--- 	end
--- 	-- Create a new buffer for the output
--- 	local output_buf = api.nvim_create_buf(false, true)
---
--- 	local lines_displayed = api.nvim_win_get_height(0)
--- 	local row = math.floor(lines_displayed * 0.1) + 1
--- 	local col = math.floor(vim.o.columns * 0.1)
---
--- 	-- Set the options for the new window
--- 	local opts = {
--- 		relative = "editor",
--- 		row = row,
--- 		col = col,
--- 		width = math.floor(vim.o.columns * 0.8),
--- 		height = math.floor(lines_displayed * 0.8),
--- 		style = "minimal",
--- 		border = "rounded",
--- 		title = "Tasks",
--- 		title_pos = "center",
--- 	}
---
--- 	-- Open a new floating window with the output buffer
--- 	local win_id = api.nvim_open_win(output_buf, true, opts)
---
--- 	-- Set the terminal buffer to use the 'task' command
--- 	fn.termopen(cmd .. " & read", {
--- 		on_exit = function(_, _, _)
--- 			log("on_exit")
--- 			api.nvim_win_close(win_id, true)
--- 			api.nvim_buf_delete(output_buf, { force = true })
--- 			if utils.is_dashboard_open() then
--- 				-- refresh dashboard
--- 				utils.refresh_dashboard()
--- 			else
--- 			end
--- 		end,
--- 	})
--- 	-- Start insert mode in the terminal
--- 	vim.cmd("startinsert")
--- end
-
 local function get_todo_depends(tasks)
   local task_dict = build_task_dict(tasks)
   local root_tasks = find_root_tasks_depends(tasks) or {}
@@ -164,7 +130,7 @@ end
 function M.get_todo(project, group_by, limit)
   limit = limit or -1
   group_by = group_by or "depends"
-  local tasks = M.tasks_get_urgent(limit, project)
+  local tasks = M.get_tasks(limit, project)
   if group_by == "depends" then
     return get_todo_depends(tasks)
   else
@@ -172,9 +138,26 @@ function M.get_todo(project, group_by, limit)
   end
 end
 
--- function M.setup()
--- 	-- log()
--- 	-- setup_commands()
--- end
+function M.setup()
+  -- local handle = get_tasks_async(nil, false)
+  -- if handle ~= nil then
+  --   print("Handle: ", handle.is_closing)
+  -- end
+
+  -- Emit signal if database file is modified
+  -- M.fs_event = vim.loop.new_fs_event()
+  -- M.fs_event:start(
+  --   cache.data_file,
+  --   {},
+  --   vim.schedule_wrap(function(err, filename, event)
+  --     if err then
+  --       vim.notify("Cannot watch the Taskwarrior database, error: " .. err, vim.log.levels.ERROR)
+  --       return
+  --     else
+  --       EventEmitter:emit("Taskwarrior:database_changed", filename, events)
+  --     end
+  --   end)
+  -- )
+end
 
 return M

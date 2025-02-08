@@ -1,4 +1,4 @@
-local config = require("taskforge.config")
+local config = require("taskforge.utils.config")
 local uv = vim.loop
 local M = {}
 
@@ -18,23 +18,6 @@ function M.create_scaffolding(callback)
   else -- sync
     uv.fs_mkdir(M.projectpath, 448)
   end
-end
-
-function M.is_excluded(dir)
-  if config.options.project.root_patterns.exclude_dirs == nil then
-    return false
-  end
-  for _, dir_pattern in ipairs(config.options.project.root_patterns.exclude_dirs) do
-    if dir:match(dir_pattern) ~= nil then
-      return true
-    end
-  end
-
-  return false
-end
-
-function M.exists(path)
-  return vim.fn.empty(vim.fn.glob(path)) == 0
 end
 
 return M

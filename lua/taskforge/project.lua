@@ -1,13 +1,11 @@
 -- Credit for the inspiration of this module goos to Ahmedkhalf
 -- https://github.com/ahmedkhalf/project.nvim
 
-
 local M = {}
 
-local utils = require('taskforge.utils.utils')
-local glob = require('taskforge.utils.globtopattern')
-local config = require('taskforge.config')
-local path = require("taskforge.utils.path")
+local utils = require("taskforge.utils.utils")
+local glob = require("taskforge.utils.globtopattern")
+local config = require("taskforge.utils.config")
 local uv = vim.loop
 local api = vim.api
 local fn = vim.fn
@@ -17,7 +15,7 @@ M.attached_lsp = false
 -- Get the lsp client for the current buffer
 ---@return string|nil error
 function M.find_lsp_root()
-  local buf_ft = api.nvim_get_option_value("filetype",{})
+  local buf_ft = api.nvim_get_option_value("filetype", {})
   local clients = vim.lsp.get_clients()
 
   -- log(buf_ft, clients)
@@ -38,7 +36,6 @@ end
 
 function M.set_pwd(dir)
   if dir ~= nil then
-
     if fn.getcwd() ~= dir then
       api.nvim_set_current_dir(dir)
     end
@@ -46,6 +43,23 @@ function M.set_pwd(dir)
   end
 
   return false
+end
+
+function M.is_excluded(dir)
+  if config.project.root_patterns.exclude_dirs == nil then
+    return false
+  end
+  for _, dir_pattern in ipairs(config.project.root_patterns.exclude_dirs) do
+    if dir:match(dir_pattern) ~= nil then
+      return true
+    end
+  end
+
+  return false
+end
+
+function M.exists(path_name)
+  return vim.fn.empty(vim.fn.glob(path_name)) == 0
 end
 
 ---@return string|nil,string|nil, string|nil
@@ -79,12 +93,11 @@ function M.find_pattern_root()
 
     while true do
       local file = uv.fs_scandir_next(dir)
-        if file == nil then
-          return
-        end
-    table.insert(curr_dir_cache, file)
+      if file == nil then
+        return
+      end
+      table.insert(curr_dir_cache, file)
     end
-
   end
 
   ---@return boolean
@@ -95,14 +108,14 @@ function M.find_pattern_root()
 
   ---@return boolean
   local function sub(dir, identifier)
-    local path = get_parent(dir)
-    while true do 
-      if is(path, identifier) then
+    local path_name = get_parent(dir)
+    while true do
+      if is(path_name, identifier) then
         return true
       end
-      local current = path
-      path = get_parent(path)
-      if current == path then
+      local current = path_name
+      path_name = get_parent(path_name)
+      if current == path_name then
         return false
       end
     end
@@ -110,8 +123,8 @@ function M.find_pattern_root()
 
   ---@return boolean
   local function child(dir, identifier)
-    local path = get_parent(dir)
-    return is(path, identifier)
+    local path_name = get_parent(dir)
+    return is(path_name, identifier)
   end
 
   ---@return boolean
@@ -143,7 +156,7 @@ function M.find_pattern_root()
 
   while true do
     -- log("search dir: ", search_dir)
-    for pattern_type, pattern_list in pairs(config.options.project.root_patterns) do
+    for pattern_type, pattern_list in pairs(config.project.root_patterns) do
       -- log("type: ", pattern_type)
       for _, pattern in ipairs(pattern_list) do
         -- log("pattern: ", pattern)
@@ -175,15 +188,15 @@ end
 ---if none succeeds it will return nil
 ---@return string|nil, string|nil, string|nil
 function M.get_project_root()
-  for _, detection_method in ipairs(config.options.project.detection_methods) do
+  for _, detection_method in ipairs(config.project.detection_methods) do
     if detection_method == "lsp" then
       local root, lsp_name = M.find_lsp_root()
-      if root ~= nil and not path.is_excluded(root) then
+      if root ~= nil and not M.is_excluded(root) then
         return root, lsp_name, "lsp"
       end
     elseif detection_method == "pattern" then
       local root, pattern_type, method = M.find_pattern_root()
-      if root ~= nil and not path.is_excluded(root) then
+      if root ~= nil and not M.is_excluded(root) then
         return root, pattern_type, method
       end
     end
@@ -194,7 +207,7 @@ end
 function M.get_project_name()
   local root, pattern_type, method = M.get_project_root()
   -- log(root, pattern_type, method)
-  
+
   if root == nil or root == "" then
     return nil
   end
@@ -206,14 +219,13 @@ function M.get_project_name()
     -- log("default name:", project_name)
   end
 
-
   if method == "json" then
-    if config.options.project.json_tags ~= nil and #config.options.project.json_tags ~= 0 then
+    if config.project.json_tags ~= nil and #config.project.json_tags ~= 0 then
       local content = utils.read_file(root .. "/" .. method)
       if content ~= nil then
         local json = fn.json_decode(content)
         if json ~= nil then
-          for _, tag in ipairs(config.options.project.json_tags) do
+          for _, tag in ipairs(config.project.json_tags) do
             if json[tag] ~= nil then
               project_name = json[tag]
               -- log("json:", project_name)
@@ -237,14 +249,14 @@ function M.get_project_name()
   -- end
 
   -- if the extension must be removed we do it unless the project name starts with a dot
-  if project_name ~= "" and project_name:sub(1,1) ~= "." and config.options.project.remove_extension then
+  if project_name ~= "" and project_name:sub(1, 1) ~= "." and config.project.remove_extension then
     project_name = project_name:match("([^.]*)[\\.]*.*$")
   end
 
   -- we look for synonmyms and if found we return the main name
-  -- log("project synonyms: ", config.options.project.project_synonyms, #config.options.project.project_synonyms)
-  if config.options.project.project_synonyms ~= nil then
-    for project, synonym in pairs(config.options.project.project_synonyms) do
+  -- log("project synonyms: ", config.project.project_synonyms, #config.project.project_synonyms)
+  if config.project.project_synonyms ~= nil then
+    for project, synonym in pairs(config.project.project_synonyms) do
       -- log("Synonym:", project, synonym)
       if synonym ~= nil then
         if type(synonym) ~= nil and type(synonym) == "string" and project_name == synonym then
@@ -262,7 +274,6 @@ function M.get_project_name()
   end
 
   return project_name
-
 end
 
 ---@diagnostic disable-next-line: unused-local
@@ -293,7 +304,7 @@ function M.attach_to_lsp()
 end
 
 function M.is_file()
-  local buf_type = api.nvim_get_option_value("buftype",{})
+  local buf_type = api.nvim_get_option_value("buftype", {})
 
   local whitelisted_buf_type = { "", "acwrite" }
   local is_in_whitelist = false
@@ -320,7 +331,7 @@ function M.on_buf_enter()
   end
 
   local current_dir = fn.expand("%:p:h", true)
-  if not path.exists(current_dir) or path.is_excluded(current_dir) then
+  if not M.exists(current_dir) or M.is_excluded(current_dir) then
     return
   end
 
@@ -332,7 +343,7 @@ function M.setup()
   local autocmds = {}
   autocmds[#autocmds + 1] = 'autocmd VimEnter,BufEnter * ++nested lua require("taskforge.project").on_buf_enter()'
 
-  if vim.tbl_contains(config.options.project.detection_methods, "lsp") then
+  if vim.tbl_contains(config.project.detection_methods, "lsp") then
     M.attach_to_lsp()
   end
 

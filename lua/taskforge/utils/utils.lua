@@ -48,9 +48,6 @@ Dependencies:
   - Optional dashboard plugins (Snacks, dashboard)
 --]]
 
-local api = vim.api
-local fn = vim.fn
-
 local Result = require("taskforge.utils.result")
 
 local M = {}
@@ -81,6 +78,7 @@ local M = {}
 ---@field stream boolean|nil Stream output instead of collecting (only for async, default: false)
 ---@field separators string[]|nil Separators for splitting stdout (default: {"\n"})
 ---@field remove_sep boolean|nil Remove separators from output (default: true)
+---@field text boolean|nil Handle stdin and stderr as text
 
 ---Split text using multiple separators while preserving empty elements
 ---Note: Separators are treated as literal strings, not regex patterns
@@ -90,9 +88,13 @@ local M = {}
 ---@param remove_sep boolean Whether to remove separators from output
 ---@return string|string[] Single string if empty/single result, array otherwise
 local function split_text(text, separators, remove_sep)
-  -- Handle the trivial case
+  -- Handle the trivial cases
   if text == "" then
     return ""
+  end
+
+  if separators == nil or #separators == 0 then
+    return text
   end
 
   -- First split by each separator in sequence
@@ -219,7 +221,7 @@ function M.exec(cmd, args, opts, callback)
   args = args or {}
 
   -- Validate options
-  if opts.async and not callback then
+  if opts.async and callback == nil then
     return make_error(-1, "", "Callback is required for async execution")
   end
 
@@ -228,18 +230,15 @@ function M.exec(cmd, args, opts, callback)
   end
 
   -- Prepare command arguments
-  local command = { cmd }
-  vim.list_extend(command, args)
+  local command = { cmd, unpack(args) }
 
   -- Prepare system options
-  local system_opts = {
-    cwd = opts.cwd,
-    env = opts.env,
-    clear_env = opts.clear_env,
-  }
-
-  if opts.timeout then
-    system_opts.timeout = opts.timeout
+  local system_opts = {}
+  local system_opts_handle = { "cwd", "env", "clear_env", "timeout", "text" }
+  for _, handle in ipairs(system_opts_handle) do
+    if opts[handle] ~= nil then
+      system_opts[handle] = opts[handle]
+    end
   end
 
   if opts.async then
@@ -262,12 +261,6 @@ function M.exec(cmd, args, opts, callback)
 
     -- Start async process
     local handle = vim.system(command, system_opts, function(obj)
-      -- Process the buffers according to separators
-      local result = create_result({
-        code = obj.code,
-        signal = obj.signal,
-      }, stdout_buffer, stderr_buffer, opts.stream, opts.separators, opts.remove_sep)
-
       -- Handle different completion states
       if obj.code ~= 0 then
         callback(
@@ -278,6 +271,11 @@ function M.exec(cmd, args, opts, callback)
           )
         )
       else
+        -- Process the buffers according to separators
+        local result = create_result({
+          code = obj.code,
+          signal = obj.signal,
+        }, stdout_buffer, stderr_buffer, opts.stream, opts.separators, opts.remove_sep)
         callback(Result.ok(result))
       end
     end)
@@ -328,7 +326,7 @@ end
 ---Checks if the current buffer is a dashboard
 ---@return boolean true if current buffer is a dashboard
 function M.is_dashboard_open()
-  local bufname = api.nvim_buf_get_name(0)
+  local bufname = vim.api.nvim_buf_get_name(0)
   local buftype = vim.bo.filetype
   return string.match(bufname, "dashboard") or buftype == "dashboard" or buftype == "snacks_dashboard"
 end
@@ -341,8 +339,8 @@ function M.refresh_dashboard()
     if Snacks and Snacks.dashboard and type(Snacks.dashboard.update) == "function" then
       Snacks.dashboard.update()
     elseif M.get_dashboard_config and type(M.get_dashboard_config) == "function" then
-      local bufnr = api.nvim_get_current_buf()
-      api.nvim_buf_delete(bufnr, { force = true })
+      local bufnr = vim.api.nvim_get_current_buf()
+      vim.api.nvim_buf_delete(bufnr, { force = true })
       local dashboard = require("dashboard")
       dashboard.setup(M.get_dashboard_config())
       dashboard:instance()

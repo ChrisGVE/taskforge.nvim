@@ -3,13 +3,15 @@
 -- MIT License
 --
 
-local M = {}
-
 -- Default configuration structure
 ---@class TaskforgeOptions
-M.defaults = {
+Config = {
   -- debug hook
-  debug = nil,
+  debug = {
+    enable = nil,
+    log_file = nil,
+    log_max_len = nil,
+  },
   -- Project naming configuration
   project = {
     -- project prefix, will be separated by a dot with the project name
@@ -166,10 +168,7 @@ M.defaults = {
         "urgency",
       },
       -- Abbreviations to shorten project names
-      project_abbreviations = {
-        ["work."] = "w.",
-        ["personal."] = "p.",
-      },
+      project_abbreviations = {},
     },
   },
 
@@ -208,35 +207,11 @@ M.defaults = {
   },
 }
 
-M.cache = {
-  has_taskwarrior = nil,
-  has_taskwarrior_tui = nil,
-  has_taskopen = nil,
-  -- has dashboard plugins
-  has_snacks_dashboard = nil,
-  has_dashboard = nil,
-  -- has picker plugins
-  has_snacks_picker = nil,
-  has_telescope = nil,
-  has_fzf_lua = nil,
-}
-
-M.options = nil
-
-M.setup = function(options)
-  M.options = vim.tbl_deep_extend("force", M.defaults, options)
-
-  -- setup environment cache
-  M.cache.has_taskwarrior = vim.fn.executable("task") == 1
-  M.cache.has_taskwarrior_tui = vim.fn.executable("taskwarrior-tui") == 1
-  M.cache.has_taskopen = vim.fn.exists("g:taskopen") == 1
-
-  M.cache.has_snacks_dashboard = package.loaded["Snacks.dashboard"] ~= nil
-  M.cache.has_dashboard = package.loaded["dashboard-nvim"] ~= nil
-
-  M.cache.has_snacks_picker = package.loaded["Snacks.picker"] ~= nil
-  M.cache.has_telescope = package.loaded["telescope"] ~= nil
-  M.cache.has_fzf_lua = package.loaded["fzf-lua"] ~= nil
+function Config:setup(options)
+  local new_config = vim.tbl_deep_extend("force", self, options)
+  for key, value in pairs(new_config) do
+    self[key] = value
+  end
 end
 
-return M
+return Config

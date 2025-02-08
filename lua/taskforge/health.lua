@@ -1,7 +1,7 @@
 local M = {}
 
 local utils = require("taskforge.utils.utils")
-local config = require("taskforge.config")
+local cache = require("taskforge.utils.config")
 
 function M.check()
   vim.health.start("Taskforge Health Check")
@@ -14,14 +14,19 @@ function M.check()
   end
 
   -- Check for TaskWarrior dependency
-  if config.cache.has_taskwarrior then
+  if cache.has_taskwarrior then
     vim.health.ok("TaskWarrior is installed and available.")
+    if cache.data_file_exists then
+      vim.health.ok("Taskwarrior's database exists and readable.")
+    else
+      vim.health.error("Taskwarrior's database does not exist. Taskwarrior has not been setup yet.")
+    end
   else
     vim.health.error("TaskWarrior is not installed. Install it to use this plugin.")
   end
 
   -- Check for Taskwarrior configuration
-  if config.cache.has_taskwarrior then
+  if cache.has_taskwarrior then
     local cmd = "task"
     local opts = { separators = { "\n", " " } }
 
@@ -57,21 +62,21 @@ function M.check()
   end
 
   -- Check for TaskOpen dependency
-  if config.cache.has_taskopen then
+  if cache.has_taskopen then
     vim.health.ok("TaskOpen is installed and available.")
   else
     vim.health.error("TaskOpen is not installed.")
   end
 
   -- Check for Taskwarrior-tui dependency
-  if config.cache.has_taskwarrior_tui then
+  if cache.has_taskwarrior_tui then
     vim.health.ok("Taskwarrior-tui is installed and available.")
   else
     vim.health.warn("Taskwarrior-tui is not installed.")
   end
 
   -- Check if plugin has been initialized properly
-  if _G.Taskforge_init then
+  if cache.valid then
     vim.health.ok("Plugin has been initialized correctly.")
   else
     vim.health.warn("Plugin may not have initialized correctly.")

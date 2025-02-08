@@ -7,16 +7,15 @@ local M = {}
 local utils = require("taskforge.utils.utils")
 local tasks = require("taskforge.tasks")
 local project = require("taskforge.project")
-local config = require("taskforge.config")
+local config = require("taskforge.utils.config")
 local interface = require("taskforge.interface")
-local api = vim.api
 
-local urgent_tasks = {}
-local non_urgent_tasks = {}
+local project_tasks = {}
+local other_tasks = {}
 
 local function parse_task(task_to_parse, columnsWidth)
   local task = {}
-  for _, column in ipairs(config.options.dashboard.format.columns) do
+  for _, column in ipairs(config.dashboard.format.columns) do
     local sl = " "
     if _ == 1 then
       sl = ""
@@ -50,7 +49,7 @@ local function sanitize_tasks(task_list)
           local new_date_string = date_string:match(pattern)
           task[k] = new_date_string or date_string
         elseif k == "project" then
-          task[k] = utils.replace_project_name(v, config.options.dashboard.format)
+          task[k] = utils.replace_project_name(v, config.dashboard.format)
         end
       else
         task[k] = ""
@@ -63,12 +62,12 @@ local function get_columns_width(task_list, other_tasks, maxwidth)
   -- log()
   local columnsWidth = {}
   -- TODO: Check if this is really necessary, also it should be independent from whether we target snacks.nvim or dashboard.nvim
-  local max_width = maxwidth or config.options.dashboard.format.max_width
-  local needed_for_padding = #config.options.dashboard.format.columns
+  local max_width = maxwidth or config.dashboard.format.max_width
+  local needed_for_padding = #config.dashboard.format.columns
   local total_width = 0
   sanitize_tasks(task_list)
   sanitize_tasks(other_tasks)
-  for _, column in ipairs(config.options.dashboard.format.columns) do
+  for _, column in ipairs(config.dashboard.format.columns) do
     columnsWidth[column] = 0
     for _, task in ipairs(task_list) do
       if task[column] ~= nil then
@@ -95,14 +94,14 @@ local function get_columns_width(task_list, other_tasks, maxwidth)
 end
 
 function M.get_tasks()
-  local main_tasks = tasks.tasks_get_urgent(config.options.dashboard.format.limit, M.project)
+  local main_tasks = tasks.get_dashboard_tasks(config.dashboard.format.limit, M.project)
   local other_tasks = {}
   if
     M.project ~= nil
-    and config.options.dashboard.format.non_project_limit ~= nil
-    and config.options.dashboard.format.non_project_limit > 0
+    and config.dashboard.format.non_project_limit ~= nil
+    and config.dashboard.format.non_project_limit > 0
   then
-    other_tasks = tasks.tasks_get_urgent(config.options.dashboard.format.non_project_limit, M.project, true)
+    other_tasks = tasks.get_dashboard_tasks(config.dashboard.format.non_project_limit, M.project, true)
   end
   return main_tasks, other_tasks
 end
@@ -127,12 +126,12 @@ function M.format_tasks(max_width)
     local line = parse_task(task, columnsWidth)
     if
       task.urgency ~= nil
-      and config.options.highlights.urgent.threshold ~= nil
-      and tonumber(task.urgency) >= config.options.highlights.urgent.threshold
+      and config.highlights.urgent.threshold ~= nil
+      and tonumber(task.urgency) >= config.highlights.urgent.threshold
     then
-      table.insert(urgent_tasks, line)
+      table.insert(project_tasks, line)
     else
-      table.insert(non_urgent_tasks, line)
+      table.insert(other_tasks, line)
     end
     table.insert(lines, line)
   end
@@ -145,12 +144,12 @@ function M.format_tasks(max_width)
     local line = parse_task(task, columnsWidth)
     if
       task.urgency ~= nil
-      and config.options.highlights.urgent.threshold ~= nil
-      and tonumber(task.urgency) >= config.options.highlights.urgent.threshold
+      and config.highlights.urgent.threshold ~= nil
+      and tonumber(task.urgency) >= config.highlights.urgent.threshold
     then
-      table.insert(urgent_tasks, line)
+      table.insert(project_tasks, line)
     else
-      table.insert(non_urgent_tasks, line)
+      table.insert(other_tasks, line)
     end
     table.insert(lines, line)
   end
@@ -158,7 +157,7 @@ function M.format_tasks(max_width)
 end
 
 function M.process_tasks_for_snacks()
-  local max_width = config.options.dashboard.format.max_width - config.options.dashboard.snacks_options.indent
+  local max_width = config.dashboard.format.max_width - config.dashboard.snacks_options.indent
   local hl_normal = "dir"
   local hl_overdue = "special"
   local lines = {}
@@ -175,13 +174,13 @@ function M.process_tasks_for_snacks()
     local hl = hl_normal
     if
       task.urgency ~= nil
-      and config.options.highlights.urgent.threshold ~= nil
-      and tonumber(task.urgency) >= config.options.highlights.urgent.threshold
+      and config.highlights.urgent.threshold ~= nil
+      and tonumber(task.urgency) >= config.highlights.urgent.threshold
     then
-      table.insert(urgent_tasks, line)
+      table.insert(project_tasks, line)
       hl = hl_overdue
     else
-      table.insert(non_urgent_tasks, line)
+      table.insert(other_tasks, line)
     end
     table.insert(lines, { line .. "\n", hl = hl })
   end
@@ -196,13 +195,13 @@ function M.process_tasks_for_snacks()
     local hl = hl_normal
     if
       task.urgency ~= nil
-      and config.options.highlights.urgent.threshold ~= nil
-      and tonumber(task.urgency) >= config.options.highlights.urgent.threshold
+      and config.highlights.urgent.threshold ~= nil
+      and tonumber(task.urgency) >= config.highlights.urgent.threshold
     then
-      table.insert(urgent_tasks, line)
+      table.insert(project_tasks, line)
       hl = hl_overdue
     else
-      table.insert(non_urgent_tasks, line)
+      table.insert(other_tasks, line)
     end
     table.insert(lines, { line .. "\n", hl = hl })
   end
@@ -215,7 +214,7 @@ end
 --- @return table hl Highlight definition
 local function get_default_hl_group(which)
   if which == "urgent" then
-    local hl = api.nvim_get_hl(0, { name = "@keyword" })
+    local hl = vim.api.nvim_get_hl(0, { name = "@keyword" })
     return {
       bg = hl.bg,
       fg = hl.fg,
@@ -225,7 +224,7 @@ local function get_default_hl_group(which)
       reverse = hl.reverse,
     }
   elseif which == "not_urgent" then
-    local hl = api.nvim_get_hl(0, { name = "Comment" })
+    local hl = vim.api.nvim_get_hl(0, { name = "Comment" })
     return {
       bg = hl.bg,
       fg = hl.fg,
@@ -243,36 +242,36 @@ end
 
 local function setup_hl_groups()
   local hl_urgent = nil
-  if config.options.highlights and config.options.highlights.urgent and config.options.highlights.urgent.group then
-    hl_urgent = config.options.highlights.urgent.group
+  if config.highlights and config.highlights.urgent and config.highlights.urgent.group then
+    hl_urgent = config.highlights.urgent.group
   else
     hl_urgent = get_default_hl_group("urgent")
   end
   if hl_urgent then
-    api.nvim_set_hl(0, "TFDashboardHeaderUrgent", hl_urgent)
+    vim.api.nvim_set_hl(0, "TFDashboardHeaderUrgent", hl_urgent)
   end
   local hl_not_urgent = nil
 
-  if config.options.highlights and config.options.highlights.normal and config.options.highlights.normal.group then
-    hl_not_urgent = config.options.highlights.normal.group
+  if config.highlights and config.highlights.normal and config.highlights.normal.group then
+    hl_not_urgent = config.highlights.normal.group
   else
     hl_not_urgent = get_default_hl_group("not_urgent")
   end
   if hl_not_urgent then
-    api.nvim_set_hl(0, "TFDashboardHeader", hl_not_urgent)
+    vim.api.nvim_set_hl(0, "TFDashboardHeader", hl_not_urgent)
   end
 end
 
 local function hl_tasks()
   setup_hl_groups()
-  local lines = api.nvim_buf_get_lines(0, 0, -1, false)
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   -- log()
-  log("Lines: " .. vim.inspect(urgent_tasks))
+  log("Lines: " .. vim.inspect(project_tasks))
   for i, line in ipairs(lines) do
-    if utils.in_table(urgent_tasks, line) then
-      api.nvim_buf_add_highlight(0, -1, "TFDashboardHeaderUrgent", i - 1, 0, -1)
-    elseif utils.in_table(non_urgent_tasks, line) then
-      api.nvim_buf_add_highlight(0, -1, "TFDashboardHeader", i - 1, 0, -1)
+    if utils.in_table(project_tasks, line) then
+      vim.api.nvim_buf_add_highlight(0, -1, "TFDashboardHeaderUrgent", i - 1, 0, -1)
+    elseif utils.in_table(other_tasks, line) then
+      vim.api.nvim_buf_add_highlight(0, -1, "TFDashboardHeader", i - 1, 0, -1)
     end
   end
 end
@@ -280,34 +279,34 @@ end
 function M.get_snacks_dashboard_tasks()
   -- log()
   local title = {
-    icon = config.options.dashboard.snacks_options.icon,
-    title = config.options.dashboard.snacks_options.title,
-    pane = config.options.dashboard.snacks_options.pane or 1,
+    icon = config.dashboard.snacks_options.icon,
+    title = config.dashboard.snacks_options.title,
+    pane = config.dashboard.snacks_options.pane or 1,
   }
-  if config.options.dashboard.snacks_options.key ~= nil and config.options.dashboard.snacks_options.action ~= nil then
-    if config.options.dashboard.snacks_options.action == "taskwarrior-tui" then
+  if config.dashboard.snacks_options.key ~= nil and config.dashboard.snacks_options.action ~= nil then
+    if config.dashboard.snacks_options.action == "taskwarrior-tui" then
       title.action = function()
         interface.open_tt()
       end
-    elseif config.options.dashboard.snacks_options.action == "project" then
+    elseif config.dashboard.snacks_options.action == "project" then
       title.action = function()
         -- TODO: hook the project view
       end
-    elseif config.options.dashboard.snacks_options.action == "tasks" then
+    elseif config.dashboard.snacks_options.action == "tasks" then
       title.action = function()
         -- TODO: hook the overall view
       end
     end
-    title.key = config.options.dashboard.snacks_options.key
+    title.key = config.dashboard.snacks_options.key
   end
   local section = {
-    pane = config.options.dashboard.snacks_options.pane or 1,
-    padding = config.options.dashboard.snacks_options.padding,
-    indent = config.options.dashboard.snacks_options.indent,
+    pane = config.dashboard.snacks_options.pane or 1,
+    padding = config.dashboard.snacks_options.padding,
+    indent = config.dashboard.snacks_options.indent,
     text = M.process_tasks_for_snacks(),
   }
-  section.height = config.options.dashboard.snacks_options.height
-      and math.max(config.options.dashboard.snacks_options.height, #section.text)
+  section.height = config.dashboard.snacks_options.height
+      and math.max(config.dashboard.snacks_options.height, #section.text)
     or #section.text
 
   -- setup autocmd to catch Snacks.Dashboard events, for reference here they are:
@@ -317,7 +316,7 @@ function M.get_snacks_dashboard_tasks()
   --  SnacksDashboardUpdatePost
   --  SncaksDashboardUpdate
 
-  api.nvim_create_autocmd("User", {
+  vim.api.nvim_create_autocmd("User", {
     pattern = "SnacksDashboardLoaded",
     callback = hl_tasks,
   })

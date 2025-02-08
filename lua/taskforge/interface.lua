@@ -22,4 +22,6 @@ M.open_tt = function()
   end
 end
 
+function M.setup() end
+
 return M

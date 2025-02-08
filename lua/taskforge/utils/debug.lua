@@ -32,8 +32,7 @@ end)
 
 -- Show a notification with a pretty printed dump of the object(s)
 -- with lua treesitter highlighting and the location of the caller
----@param show? boolean
-function M.inspect(show, ...)
+function M.inspect(...)
   local len = select("#", ...) ---@type number
   local obj = { ... } ---@type unknown[]
   local caller = debug.getinfo(1, "S")
@@ -50,21 +49,16 @@ function M.inspect(show, ...)
       break
     end
   end
-  if show == nil or show then
-    vim.schedule(function()
-      local title = "Debug: " .. vim.fn.fnamemodify(caller.source:sub(2), ":~:.") .. ":" .. caller.linedefined
-      Snacks.notify.warn(vim.inspect(len == 1 and obj[1] or len > 0 and obj or nil), { title = title, ft = "lua" })
-    end)
-  else
-    return vim.inspect(len == 1 and obj[1] or len > 0 and obj or nil)
-  end
+  vim.schedule(function()
+    local title = "Debug: " .. vim.fn.fnamemodify(caller.source:sub(2), ":~:.") .. ":" .. caller.linedefined
+    Snacks.notify.warn(vim.inspect(len == 1 and obj[1] or len > 0 and obj or nil), { title = title, ft = "lua" })
+  end)
 end
 
 -- Show a notification with a pretty backtrace
----@param show? boolean
 ---@param msg? string|string[]
 ---@param opts? snacks.notify.Opts
-function M.backtrace(show, msg, opts)
+function M.backtrace(msg, opts)
   opts = vim.tbl_deep_extend("force", {
     level = vim.log.levels.WARN,
     title = "Backtrace",
@@ -82,11 +76,7 @@ function M.backtrace(show, msg, opts)
     end
   end
   local result = #trace > 0 and (table.concat(trace, "\n")) or ""
-  if show == nil or show then
-    Snacks.notify(result, opts)
-  else
-    return result
-  end
+  Snacks.notify(result, opts)
 end
 
 -- Very simple function to profile a lua function.
@@ -94,7 +84,7 @@ end
 -- * **count**: defaults to 100
 -- * **show**: default to true
 ---@param fn fun()
----@param opts? {count?: number, flush?: boolean, title?: string, show?: boolean}
+---@param opts? {count?: number, flush?: boolean, title?: string}
 function M.profile(fn, opts)
   opts = vim.tbl_extend("force", { count = 100, flush = true, show = true }, opts or {})
   local start = uv.hrtime()
@@ -104,18 +94,13 @@ function M.profile(fn, opts)
     end
     fn()
   end
-  if opts.show then
-    Snacks.notify(((uv.hrtime() - start) / 1e6 / opts.count) .. "ms", { title = opts.title or "Profile" })
-  else
-    return (opts.title or "Profile") .. ": " .. ((uv.hrtime() - start) / 1e6 / opts.count) .. "ms"
-  end
+  Snacks.notify(((uv.hrtime() - start) / 1e6 / opts.count) .. "ms", { title = opts.title or "Profile" })
 end
 
----@param level integer 
+---@param level integer
 ---@param debug_info table
 ---@return string|nil function_name, string|nil function_source
 local function caller(level, debug_info)
-
   local function get_src(path_name)
     local source
 
@@ -169,7 +154,7 @@ function M.log(...)
     local v = select(i, ...)
     parts[i] = type(v) == "string" and v or vim.inspect(v)
   end
-  local msg = " | " .. caller_src .. "." .. caller_fn 
+  local msg = " | " .. caller_src .. "." .. caller_fn
   local arg = table.concat(parts, " ")
   if #arg ~= 0 then
     msg = msg .. " | " .. arg

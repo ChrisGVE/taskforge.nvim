@@ -2,88 +2,97 @@
 --
 -- MIT License
 
--- Check that we are running neovim v0.10.0
-local function check_nvim_version(min_major, min_minor, min_patch)
-  local v = vim.version()
-  if
-    v.major < min_major
-    or (v.major == min_major and v.minor < min_minor)
-    or (v.major == min_major and v.minor == min_minor and v.patch < min_patch)
-  then
-    vim.api.nvim_err_writeln(
-      string.format(
-        "[Taskforge] Neovim v%d.%d.%d+ is required. You are using v%d.%d.%d.",
-        min_major,
-        min_minor,
-        min_patch,
-        v.major,
-        v.minor,
-        v.patch
-      )
-    )
-    return false
-  end
-  return true
-end
-
--- Stop execution if Neovim is too old
-if not check_nvim_version(0, 10, 0) then
-  return {}
-end
-
 -- Core modules
 local M = {}
-
--- _G.Taskforge = M
-_G.Taskforge_init = false
 
 -- Module imports
 local interface = require("taskforge.interface")
 local tag_tracker = require("taskforge.tag-tracker")
 local tasks = require("taskforge.tasks")
 local dashboard = require("taskforge.dashboard")
-local debug = require("taskforge.utils.debug")
 local project = require("taskforge.project")
-local config = require("taskforge.config")
-
-local api = vim.api
-local fn = vim.fn
+local config = require("taskforge.utils.config")
+local cache = require("taskforge.utils.cache")
 
 --- Debugging global hooks
-local debug_flg = false
----@param show? boolean
-_G.dd = function(show, ...)
-  if debug_flg then
-    debug.inspect(show, ...)
+local has_debug = package["snacks.debug"] ~= nil
+local debug = nil
+if has_debug then
+  debug = require("snacks.debug")
+end
+
+-- Show a notification with a pretty printed dump of the object(s)
+-- with lua treesitter highlighting and the location of the caller
+_G.dd = function(...)
+  if debug and config.options.debug.enable then
+    debug.inspect(...)
   end
 end
 
----@param show? boolean
+-- Show a notification with a pretty backtrace
 ---@param msg? string|string[]
 ---@param opts? snacks.notify.Opts
-_G.bt = function(show, msg, opts)
-  if debug_flg then
-    debug.backtrace(show, msg, opts)
+_G.bt = function(msg, opts)
+  if debug and config.options.debug.enable then
+    debug.backtrace(msg, opts)
   end
 end
 
+--- Run the current buffer or a range of lines.
+--- Shows the output of `print` inlined with the code.
+--- Any error will be shown as a diagnostic.
+---@param opts? {name?:string, buf?:number, print?:boolean}
+_G.run = function(opts)
+  if debug and config.options.debug.enable then
+    debug.run(opts)
+  end
+end
+
+-- Log a message to the file `./debug.log`.
+-- - a timestamp will be added to every message.
+-- - accepts multiple arguments and pretty prints them.
+-- - if the argument is not a string, it will be printed using `vim.inspect`.
+-- - if the message is smaller than 120 characters, it will be printed on a single line.
+--
+-- ```lua
+-- Snacks.debug.log("Hello", { foo = "bar" }, 42)
+-- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
+-- ```
 _G.log = function(...)
-  if debug_flg then
-    debug.log(...)
+  if config.options.debug.enable then
+    local file = config.options.debug.log_file or "./debug.log"
+    local fd = io.open(file, "a+")
+    if not fd then
+      error(("Could not open file %s for writing"):format(file))
+    end
+    local c = select("#", ...)
+    local parts = {} ---@type string[]
+    for i = 1, c do
+      local v = select(i, ...)
+      parts[i] = type(v) == "string" and v or vim.inspect(v)
+    end
+    local max_length = config.options.debug.log_max_len or 120
+    local msg = table.concat(parts, " ")
+    msg = #msg < max_length and msg:gsub("%s+", " ") or msg
+    fd:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg)
+    fd:write("\n")
+    fd:close()
   end
 end
 
----@param show? boolean
-_G.metrics = function(show)
-  if debug_flg then
-    debug.metrics(show)
+_G.metrics = function()
+  if debug and config.options.debug.enable then
+    debug.metrics()
   end
 end
 
+-- Very simple function to profile a lua function.
+-- * **flush**: set to `true` to use `jit.flush` in every iteration.
+-- * **count**: defaults to 100
 ---@param fn fun()
----@param opts? {count?: number, flush?: boolean, title?: string, show?: boolean}
+---@param opts? {count?: number, flush?: boolean, title?: string}
 _G.profile = function(fn, opts)
-  if debug_flg then
+  if debug and config.options.debug.enable then
     debug.profile(fn, opts)
   end
 end
@@ -91,7 +100,7 @@ end
 ---@param opts? {min?: number, show?:boolean}
 ---@return {summary:table<string, snacks.debug.Stat>, trace:snacks.debug.Stat[], traces:snacks.debug.Trace[]}
 _G.stats = function(opts)
-  if debug_flg then
+  if debug and config.options.debug.enable then
     return debug.stats(opts)
   else
     return {}
@@ -100,7 +109,7 @@ end
 
 ---@param name string?
 _G.trace = function(name)
-  if debug_flg then
+  if debug and config.options.debug.enable then
     return debug.trace(name)
   end
 end
@@ -109,7 +118,7 @@ end
 ---@param mod? table
 ---@param suffix? string
 _G.tracemod = function(modname, mod, suffix)
-  if debug_flg then
+  if debug and config.options.debug.enable then
     return debug.tracemod(modname, mod, suffix)
   end
 end
@@ -148,41 +157,52 @@ M.project = nil
 
 -- return the task section for dashboard.nvim
 function M.get_dashboard_tasks()
-  return dashboard.get_tasks()
+  if cache.valid then
+    return dashboard.get_dashboard_tasks()
+  else
+    return {}
+  end
 end
 
 -- return the task section for Snacks.nvim dashboard
 function M.get_snacks_dashboard_tasks()
-  -- log()
-  return dashboard.get_snacks_dashboard_tasks()
+  if cache.valid then
+    return dashboard.get_snacks_dashboard_tasks()
+  else
+    return {}
+  end
 end
 
 -- Core setup function
 ---Setting utlis, tasks and dashboard
 ---@param options table?
 function M.setup(options)
-  config.setup(options)
+  config:setup(options)
+  cache:setup()
 
-  -- Setup modules
-  debug_flg = debug.setup(config.options.debug)
-  dashboard.setup()
+  if cache.valid then
+    local subcommands = require("taskforge.subcommands")
+    vim.api.nvim_create_user_command(
+      "Taskforge",
+      subcommands.run,
+      { nargs = 1, bang = true, complete = subcommands.complete, desc = "Run Task Forge command" }
+    )
 
-  -- Setup the autocommands around the project
-  project.setup()
+    --
+    tasks.setup()
+    dashboard.setup()
+    project.setup()
+    interface.setup()
+    tag_tracker.setup()
 
-  -- log()
-  -- if options then
-  --   log("User config: ", options)
-  -- else
-  --   log("No user config")
-  -- end
+    M.project = project.get_project_name()
+    -- log("Project: ", M.project)
 
-  M.project = project.get_project_name()
-  -- log("Project: ", M.project)
-
-  -- Set up autocommands
-  -- M.create_autocommands()
-  _G.Taskforge_init = true
+    -- Set up autocommands
+    -- M.create_autocommands()
+  else
+    vim.notify("Taskforge disabled, use `checkhealth taskforge` for diagnostic.")
+  end
 end
 
 return M
