@@ -24,7 +24,7 @@ end
 -- Show a notification with a pretty printed dump of the object(s)
 -- with lua treesitter highlighting and the location of the caller
 _G.dd = function(...)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     debug.inspect(...)
   end
 end
@@ -33,7 +33,7 @@ end
 ---@param msg? string|string[]
 ---@param opts? snacks.notify.Opts
 _G.bt = function(msg, opts)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     debug.backtrace(msg, opts)
   end
 end
@@ -43,7 +43,7 @@ end
 --- Any error will be shown as a diagnostic.
 ---@param opts? {name?:string, buf?:number, print?:boolean}
 _G.run = function(opts)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     debug.run(opts)
   end
 end
@@ -59,8 +59,8 @@ end
 -- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
 -- ```
 _G.log = function(...)
-  if config.options.debug.enable then
-    local file = config.options.debug.log_file or "./debug.log"
+  if config.debug.enable then
+    local file = config.debug.log_file or "./debug.log"
     local fd = io.open(file, "a+")
     if not fd then
       error(("Could not open file %s for writing"):format(file))
@@ -71,7 +71,7 @@ _G.log = function(...)
       local v = select(i, ...)
       parts[i] = type(v) == "string" and v or vim.inspect(v)
     end
-    local max_length = config.options.debug.log_max_len or 120
+    local max_length = config.debug.log_max_len or 120
     local msg = table.concat(parts, " ")
     msg = #msg < max_length and msg:gsub("%s+", " ") or msg
     fd:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg)
@@ -81,7 +81,7 @@ _G.log = function(...)
 end
 
 _G.metrics = function()
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     debug.metrics()
   end
 end
@@ -92,7 +92,7 @@ end
 ---@param fn fun()
 ---@param opts? {count?: number, flush?: boolean, title?: string}
 _G.profile = function(fn, opts)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     debug.profile(fn, opts)
   end
 end
@@ -100,7 +100,7 @@ end
 ---@param opts? {min?: number, show?:boolean}
 ---@return {summary:table<string, snacks.debug.Stat>, trace:snacks.debug.Stat[], traces:snacks.debug.Trace[]}
 _G.stats = function(opts)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     return debug.stats(opts)
   else
     return {}
@@ -109,7 +109,7 @@ end
 
 ---@param name string?
 _G.trace = function(name)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     return debug.trace(name)
   end
 end
@@ -118,7 +118,7 @@ end
 ---@param mod? table
 ---@param suffix? string
 _G.tracemod = function(modname, mod, suffix)
-  if debug and config.options.debug.enable then
+  if debug and config.debug.enable then
     return debug.tracemod(modname, mod, suffix)
   end
 end

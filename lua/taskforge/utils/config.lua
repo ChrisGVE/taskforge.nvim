@@ -5,7 +5,7 @@
 
 -- Default configuration structure
 ---@class TaskforgeOptions
-Config = {
+local Config = {
   -- debug hook
   debug = {
     enable = nil,

@@ -243,11 +243,6 @@ function M.get_project_name()
     end
   end
 
-  -- If method is "signature" we already have the project name as it is the default value
-  -- if method == "signature" then
-  --   project_name = root:match("/*.*/(.*)$")
-  -- end
-
   -- if the extension must be removed we do it unless the project name starts with a dot
   if project_name ~= "" and project_name:sub(1, 1) ~= "." and config.project.remove_extension then
     project_name = project_name:match("([^.]*)[\\.]*.*$")

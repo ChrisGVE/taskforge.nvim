@@ -1,6 +1,6 @@
 local M = {}
 
-local utils = require("taskforge.utils.utils")
+local exec = require("taskforge.utils.exec")
 local cache = require("taskforge.utils.config")
 
 function M.check()
@@ -27,12 +27,13 @@ function M.check()
 
   -- Check for Taskwarrior configuration
   if cache.has_taskwarrior then
+    -- fetch the taskwarrior options
     local cmd = "task"
     local opts = { separators = { "\n", " " } }
 
-    local confirmation = utils.exec(cmd, { "_get", "rc.confirmation" }, opts) --[[@as Taskforge.utils.Result]]
-    local verbose = utils.exec(cmd, { "_get", "rc.verbose" }, opts) --[[@as Taskforge.utils.Result]]
-    local editor = utils.exec(cmd, { "_get", "rc.editor" }, opts) --[[@as Taskforge.utils.Result]]
+    local confirmation = exec.exec(cmd, { "_get", "rc.confirmation" }, opts) --[[@as Taskforge.utils.Result]]
+    local verbose = exec.exec(cmd, { "_get", "rc.verbose" }, opts) --[[@as Taskforge.utils.Result]]
+    local editor = exec.exec(cmd, { "_get", "rc.editor" }, opts) --[[@as Taskforge.utils.Result]]
 
     local nok = false
 

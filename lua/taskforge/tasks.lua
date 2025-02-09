@@ -5,6 +5,7 @@
 local M = {}
 local config = require("taskforge.utils.config")
 local cache = require("taskforge.utils.cache")
+local exec = require("taskforge.utils.exec")
 local utils = require("taskforge.utils.utils")
 local todo = {}
 
@@ -31,7 +32,7 @@ local function get_tasks_async(filter, include_completed)
     args[#args + 1] = "long"
   end
   local opts = { async = true, separators = nil, remove_sep = nil }
-  return utils.exec(cmd, args, opts, process_tasks)
+  return exec.exec(cmd, args, opts, process_tasks)
 end
 
 local function get_tasks(limit, project, exclude)

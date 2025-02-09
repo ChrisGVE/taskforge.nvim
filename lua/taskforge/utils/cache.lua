@@ -2,10 +2,11 @@
 --
 -- MIT License
 --
-local utils = require("taskforge.utils.utils")
+local exec = require("taskforge.utils.exec")
 
 -- Default cache structure
-Cache = {
+---@class TaskforgeCache
+local Cache = {
   has_taskwarrior = nil,
   has_taskwarrior_tui = nil,
   has_taskopen = nil,
@@ -21,6 +22,8 @@ Cache = {
   has_fzf_lua = nil,
   -- Main switch
   valid = nil,
+  -- Container
+  container = {},
 }
 
 function Cache:setup()
@@ -32,9 +35,10 @@ function Cache:setup()
   -- get the data file location
   local opts = { separators = { "\n", " " } }
   local cmd = "task"
-  local data_folder = utils.exec(cmd, { "_get", "rc.data.location" }, opts) --[[@as Taskforge.utils.Result]]
+  local data_folder = exec.exec(cmd, { "_get", "rc.data.location" }, opts)
   if data_folder.ok then
-    self.data_file = data_folder.value.stdout .. "/taskchampion.sqlite3"
+    local data = data_folder.value
+    self.data_file = data.stdout .. "/taskchampion.sqlite3"
     self.data_file_exists = vim.fn.filereadable(self.data_file) == 1
   else
     self.data_file_exists = false
