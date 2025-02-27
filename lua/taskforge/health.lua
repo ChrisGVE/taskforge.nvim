@@ -1,87 +1,67 @@
+-- lua/taskforge/health.lua
 local M = {}
 
-local exec = require("taskforge.utils.exec")
-local cache = require("taskforge.utils.config")
-
 function M.check()
-  vim.health.start("Taskforge Health Check")
+  local health = vim.health
 
-  -- Check if necessary Neovim features exist
+  health.start("Taskforge.nvim")
+
+  -- Neovim version
   if vim.fn.has("nvim-0.10") == 1 then
-    vim.health.ok("Neovim version is compatible.")
+    health.ok("Neovim 0.10+")
   else
-    vim.health.warn("Neovim 0.10 or higher is recommended for best compatibility.")
+    health.error("Neovim 0.10+ required")
   end
 
-  -- Check for TaskWarrior dependency
-  if cache.has_taskwarrior then
-    vim.health.ok("TaskWarrior is installed and available.")
-    if cache.data_file_exists then
-      vim.health.ok("Taskwarrior's database exists and readable.")
-    else
-      vim.health.error("Taskwarrior's database does not exist. Taskwarrior has not been setup yet.")
-    end
-  else
-    vim.health.error("TaskWarrior is not installed. Install it to use this plugin.")
+  -- Taskwarrior checks
+  local tw_ok = M._check_taskwarrior()
+  if tw_ok then
+    M._check_tw_config()
   end
 
-  -- Check for Taskwarrior configuration
-  if cache.has_taskwarrior then
-    -- fetch the taskwarrior options
-    local cmd = "task"
-    local opts = { separators = { "\n", " " } }
+  -- Dependencies
+  health.ok("Plenary: " .. tostring(package.loaded["plenary"] ~= nil))
+  health.ok("NUI: " .. tostring(package.loaded["nui"] ~= nil))
+  health.ok("Snacks: " .. tostring(package.loaded["snacks"] ~= nil))
+end
 
-    local confirmation = exec.exec(cmd, { "_get", "rc.confirmation" }, opts) --[[@as Taskforge.utils.Result]]
-    local verbose = exec.exec(cmd, { "_get", "rc.verbose" }, opts) --[[@as Taskforge.utils.Result]]
-    local editor = exec.exec(cmd, { "_get", "rc.editor" }, opts) --[[@as Taskforge.utils.Result]]
+function M._check_taskwarrior()
+  if vim.fn.executable("task") == 1 then
+    vim.health.ok("Taskwarrior installed")
+    return true
+  end
+  vim.health.error("Taskwarrior not found")
+  return false
+end
 
-    local nok = false
+function M._check_tw_config()
+  local required = {
+    rc_editor = "nvim",
+    rc_confirmation = "off",
+    rc_verbose = "no",
+  }
 
-    if confirmation == nil or confirmation.err or confirmation.value.stdout ~= "off" then
-      vim.health.warn("TaskWarrior configuration.confirmation is on. This may cause unexpected behavior.")
-      nok = true
-    else
-      vim.health.ok("TaskWarrior configuration.confirmation is on.")
-    end
-    if verbose == nil or verbose.err or (verbose.value.stdout ~= "no" and verbose.value.stdout ~= "nothing") then
-      vim.health.warn("TaskWarrior configuration.verbose is on. This may cause unexpected behavior.")
-      nok = true
-    else
-      vim.health.ok("TaskWarrior configuration.verbose is on.")
-    end
-    if editor == nil or editor.err or (editor.value.stdout == "" and editor.value.stdout ~= "nvim") then
-      vim.health.warn("TaskWarrior configuration.editor is not set to neovim. This may cause unexpected behavior.")
-      nok = true
-    else
-      vim.health.ok("TaskWarrior configuration.editor is set to neovim.")
-    end
-    if nok then
-      vim.health.warn(
-        "\nPlease consider running `:Taskforge taskwarrior_config` to address these configuration issues.\n"
-      )
+  local missing = {}
+  for setting, expected in pairs(required) do
+    local actual = M._get_tw_config(setting)
+    if actual ~= expected then
+      table.insert(missing, setting .. "=" .. expected)
     end
   end
 
-  -- Check for TaskOpen dependency
-  if cache.has_taskopen then
-    vim.health.ok("TaskOpen is installed and available.")
+  if #missing > 0 then
+    vim.health.warn("Run :Taskforge config to fix:\n" .. table.concat(missing, "\n"))
   else
-    vim.health.error("TaskOpen is not installed.")
+    vim.health.ok("Taskwarrior configured")
   end
+end
 
-  -- Check for Taskwarrior-tui dependency
-  if cache.has_taskwarrior_tui then
-    vim.health.ok("Taskwarrior-tui is installed and available.")
-  else
-    vim.health.warn("Taskwarrior-tui is not installed.")
-  end
-
-  -- Check if plugin has been initialized properly
-  if cache.valid then
-    vim.health.ok("Plugin has been initialized correctly.")
-  else
-    vim.health.warn("Plugin may not have initialized correctly.")
-  end
+function M._get_tw_config(setting)
+  local job = require("plenary.job"):new({
+    command = "task",
+    args = { "_get", setting },
+  })
+  return table.concat(job:sync(), "")
 end
 
 return M
