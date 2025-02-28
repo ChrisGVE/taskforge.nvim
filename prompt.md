@@ -1,6 +1,23 @@
 # taskforge
 
-## Initial prompt
+You are an expert at lua coding in the context of neovim.
+We are working on this project and have made some big progress. In particular around plugin initialization, avoiding race conditions and developed a dummy entry for the dashboard, which we'll continue when
+
+Our current focus is the tagging detection and task creation in taskwarrior and the next steps are as follows:
+
+- the file `dashboard.lua` contains two "TODO" comments which are not tracked in taskwarrior. However, when the file is in focus the plugin correctly identifies the existence of them and offers to create tasks for them. Since the tasks will be identified via the UUID of taskwarrior, the plugin is however not adding the UUID to the comment, and thus does not recognize when they have been recorded into taskwarrior.
+- upon editing the file, whether those comments or anywhere else, the code is constantly asking whether they should be added. Which indicates that the detection must take place strictly for the relevant comments and not elsewhere. Also while editing a relevant content we need to manage the debounce more smartly, during insert, change, replace actions the debounce timer should be disabled and only be reset and enabled after the last edit, same with deletion, every time they occur the debounce timer should be reset.
+- when the user edits a tracked comment, the UUID that has been inserted should be "protected" ie if the user makes any change to it, the user should be warned that it could break the link with taskwarrior and be offered to reinstate the UUID (using undo, and only for changes to the link), however if the user brings the UUID to another comment line that should not be prevented.
+- the above reasoning brought up the fact that a tagged comment could be a multiline comment, and thus we should be able to handle these cases properly.
+- complementary to this is the fact that some formatter might make change to comments which might or might not be destructive to our tracking mechanism, this should be monitored as well and eventually corrected after a formatter complete the work on a file.
+- there is a need to establish a convention for tagged comments which the user opts out from tracking to avoid asking again whether the user wants to track them.
+- lastly when a file has never been handled by the plugin and contains multiple tagged comments, the plugin should:
+  - for tags that are configured as automated creating, those should be handled silently
+  - for tags that are configured as creation after ask or manual, those should be handled in one go with the user presented with a list that can be navigated and having the code moved to where the selected comment is placed. The user should have the ability to exclude them if desired. After that the plugin will create the respective tasks in the background and link the comments in the file.
+
+There will be further work later such as using lsp signals for file changes. To prevent files from being closed before all plugin updates to the file are completed. And other things, but let's start with the above bullet points.
+
+## Starting point
 
 I want to write a plugin in Lua for Neovim v0.10+. The plugin will show, manage, and create/modify/delete/close tasks managed with the tool taskwarrior. It will contain as well an option to display a list of urgent tasks within the snacks.dashboard plugin.
 

@@ -83,8 +83,6 @@ local M = {
       --
       debounce = 500, -- time in ms to wait before updating taskwarrior after a change
       definitions = {
-        -- format of the tags
-        tag_format = "\\s*\\(.*\\):",
         ["TODO"] = {
           priority = "M", -- default taskwarrior priority
           tags = { "coding", "enhancement" }, -- default taskwarrior tags
@@ -190,6 +188,8 @@ local M = {
       up = { "k", "<Up>" }, -- move up the task selector
       down = { "j", "<Down>" }, -- move down the task selector
       project = "p", -- toggle filter for the current project
+      help = "?", -- shows help on the keymaps
+      undo = "u", -- undo the last acitons (one by one, back to the first action when the dialog opened)
     },
     view = {
       default = "list", -- or "tree" for dependency view
