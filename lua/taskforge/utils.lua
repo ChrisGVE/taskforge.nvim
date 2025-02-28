@@ -8,56 +8,22 @@ Taskforge Utility Module
 Purpose:
   Provides a collection of utility functions for the Taskforge plugin, including
   text manipulation, dashboard management, and data processing.
-
-Module Structure:
-  - Uses Neovim API (vim.api) for buffer operations
-  - Uses vim.fn for Vim function access
-  - Requires Taskforge.utils.result for Result type handling
-  - Exports functions through module table M
-
-Major Components:
-  1. Text Processing
-     - UTF-8 aware text manipulation
-     - Text alignment (left, right, center)
-     - Text clipping with ellipsis
-     - Pattern escaping and matching
-
-  2. Dashboard Management
-     - Dashboard buffer detection
-     - Dashboard refresh handling
-     - Multiple dashboard type support
-
-  3. Data Structure Operations
-     - Array merging and slicing
-     - Table searching and sorting
-     - Project name processing
-
-  4. Date/Time Handling
-     - ISO datetime parsing
-     - OS date formatting
-     - Timestamp conversion
-
-Dependencies:
-  - Neovim 0.10+ for vim.system()
-  - Taskforge.utils.result for Result type
-  - Optional dashboard plugins (Snacks, dashboard)
 --]]
 
-local Result = require("taskforge.utils.result")
-
-local M = {}
+local M = {} -- IMPORTANT: This must be at the top!
 
 ---Reads the entire contents of a file
 ---@param path string Path to the file
 ---@return string|nil content File contents or nil if file cannot be opened
+---@return string|nil error Error message if file cannot be opened
 function M.read_file(path)
   local file = io.open(path, "r")
   if not file then
-    return Result.err("Could not open th file.")
+    return nil, "Could not open the file."
   end
   local content = file:read("*a")
   file:close()
-  return Result.ok(content)
+  return content
 end
 
 ---Checks if the current buffer is a dashboard
@@ -72,8 +38,8 @@ end
 ---Supports both Snacks and standard dashboard plugins
 function M.refresh_dashboard()
   if M.is_dashboard_open() then
-    local Snacks = require("Snacks")
-    if Snacks and Snacks.dashboard and type(Snacks.dashboard.update) == "function" then
+    local ok, Snacks = pcall(require, "Snacks")
+    if ok and Snacks and Snacks.dashboard and type(Snacks.dashboard.update) == "function" then
       Snacks.dashboard.update()
     elseif M.get_dashboard_config and type(M.get_dashboard_config) == "function" then
       local bufnr = vim.api.nvim_get_current_buf()
@@ -127,7 +93,7 @@ function M.replace_project_name(project_name, config)
   end
 
   if config and config.shorten_sections then
-    local sep = config.sec_sep
+    local sep = config.separator or "."
     local escaped_sep = escape_pattern(sep)
     local pattern = "[^" .. escaped_sep .. "]+"
     local parts = {}
@@ -180,7 +146,7 @@ end
 function M.in_table(lines_table, target_line)
   target_line = trim(target_line)
   for _, line in ipairs(lines_table) do
-    if line == target_line then
+    if trim(line) == target_line then
       return true
     end
   end
@@ -256,7 +222,11 @@ end
 ---@return string Formatted date string
 function M.get_os_date(datetime_str, format_str)
   format_str = format_str or "%Y-%m-%d %H:%M:%S"
-  return os.date(format_str, M.parse_datetime(datetime_str))
+  local timestamp, err = M.parse_datetime(datetime_str)
+  if timestamp then
+    return os.date(format_str, timestamp)
+  end
+  return "Invalid date: " .. (err or "unknown error")
 end
 
 ---Sorts table of tasks by specified column
@@ -272,6 +242,195 @@ function M.sort_by_column(tasks, column, order)
       return a[column] < b[column]
     end
   end)
+end
+
+-- Debug functions
+-- Write to the debug log file
+function M.debug_log(module, message, data)
+  -- Use pcall to avoid errors when config isn't loaded yet
+  local cfg = {}
+  local ok, config_module = pcall(require, "taskforge.config")
+  if ok then
+    cfg = config_module.get()
+  end
+
+  if not (cfg.debug and cfg.debug.enable) then
+    return
+  end
+
+  local msg = string.format("[%s] %s", module, message)
+
+  -- Add data inspection if provided
+  if data ~= nil then
+    if type(data) == "string" then
+      msg = msg .. " " .. data
+    else
+      msg = msg .. " " .. vim.inspect(data)
+    end
+  end
+
+  -- Write to log file if configured
+  if cfg.debug and cfg.debug.log_file then
+    local file = io.open(cfg.debug.log_file, "a")
+    if file then
+      file:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg .. "\n")
+      file:close()
+    end
+  end
+
+  -- Also notify if debug is set to high verbosity
+  if cfg.debug and cfg.debug.verbose then
+    vim.schedule(function()
+      vim.notify(msg, vim.log.levels.DEBUG)
+    end)
+  end
+end
+
+-- Run diagnostics
+function M.run_diagnostics()
+  M.debug_log("DEBUG", "Starting diagnostics")
+
+  -- Test Neovim version
+  local nvim_version = vim.version()
+  M.debug_log(
+    "DEBUG",
+    "Neovim version:",
+    string.format("%d.%d.%d", nvim_version.major, nvim_version.minor, nvim_version.patch)
+  )
+
+  -- Test taskwarrior
+  M.test_taskwarrior()
+
+  -- Test tasks data
+  M.test_tasks_data()
+
+  -- Check Snacks
+  M.check_snacks()
+
+  -- Dump config
+  local ok, config_module = pcall(require, "taskforge.config")
+  if ok then
+    M.debug_log("DEBUG", "Configuration:", config_module.get())
+  end
+
+  M.debug_log("DEBUG", "Diagnostics complete")
+end
+
+-- Test taskwarrior connection
+function M.test_taskwarrior()
+  local Job = require("plenary.job")
+  local output = {}
+  local error_output = {}
+
+  M.debug_log("DEBUG", "Testing taskwarrior connection")
+
+  Job:new({
+    command = "task",
+    args = { "--version" },
+    on_stdout = function(_, line)
+      table.insert(output, line)
+    end,
+    on_stderr = function(_, line)
+      table.insert(error_output, line)
+    end,
+    on_exit = function(_, code)
+      if code == 0 then
+        M.debug_log("DEBUG", "Taskwarrior version:", table.concat(output, "\n"))
+      else
+        M.debug_log("DEBUG", "Taskwarrior error:", table.concat(error_output, "\n"))
+      end
+    end,
+  }):start()
+end
+
+-- Test tasks data
+function M.test_tasks_data()
+  local Job = require("plenary.job")
+  local output = {}
+  local error_output = {}
+
+  M.debug_log("DEBUG", "Testing task export")
+
+  Job:new({
+    command = "task",
+    args = { "export" },
+    on_stdout = function(_, line)
+      table.insert(output, line)
+    end,
+    on_stderr = function(_, line)
+      table.insert(error_output, line)
+    end,
+    on_exit = function(_, code)
+      if code == 0 then
+        local data = table.concat(output, "")
+        if data and data ~= "" then
+          local ok, parsed = pcall(vim.json.decode, data)
+          if ok then
+            M.debug_log("DEBUG", "Task export successful, found " .. #parsed .. " tasks")
+            -- Log a sample task
+            if #parsed > 0 then
+              M.debug_log("DEBUG", "Sample task:", parsed[1])
+            end
+          else
+            M.debug_log("DEBUG", "Failed to parse task data:", parsed)
+          end
+        else
+          M.debug_log("DEBUG", "Task export returned empty data")
+        end
+      else
+        M.debug_log("DEBUG", "Task export error:", table.concat(error_output, "\n"))
+      end
+    end,
+  }):start()
+end
+
+-- Check if Snacks dashboard is available
+function M.check_snacks()
+  local ok, Snacks = pcall(require, "snacks")
+  if ok and Snacks then
+    M.debug_log("DEBUG", "Snacks is available")
+
+    if Snacks.dashboard then
+      M.debug_log("DEBUG", "Snacks dashboard is available")
+    else
+      M.debug_log("DEBUG", "Snacks dashboard is not available")
+    end
+  else
+    M.debug_log("DEBUG", "Snacks is not available")
+  end
+end
+
+-- Safely notify with fallback
+function M.notify(msg, level)
+  level = level or vim.log.levels.INFO
+  vim.schedule(function()
+    vim.notify(msg, level)
+  end)
+end
+
+-- Centralized confirm dialog function that properly handles y/n keys
+function M.confirm(prompt, opts)
+  opts = opts or {}
+  local choices = opts.choices or "&Yes\n&No"
+  local default = opts.default or 2 -- Default to "No" for safety
+
+  -- Schedule to ensure running in the main thread for proper key handling
+  return vim.schedule_wrap(function(callback)
+    local choice = vim.fn.confirm(prompt, choices, default)
+    if callback then
+      callback(choice)
+    end
+    return choice
+  end)
+end
+
+-- Wrapper for simple yes/no confirmations
+function M.confirm_yesno(prompt, callback, default_no)
+  local default = default_no == false and 1 or 2 -- Default to "No" unless explicitly set to false
+  return M.confirm(prompt, {
+    choices = "&Yes\n&No",
+    default = default,
+  })(callback)
 end
 
 return M

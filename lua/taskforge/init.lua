@@ -1,241 +1,203 @@
--- -- Copyright (c) 2025 Christian C. Berclaz
--- --
--- -- MIT License
+-- Copyright (c) 2025 Christian C. Berclaz
 --
--- -- Core modules
--- local M = {}
+-- MIT License
 --
--- -- Module imports
--- local interface = require("taskforge.interface")
--- local tag_tracker = require("taskforge.tracker")
--- local tasks = require("taskforge.tasks")
--- local dashboard = require("taskforge.dashboard")
--- local project = require("taskforge.project")
--- local config = require("taskforge.utils.config")
--- local cache = require("taskforge.utils.cache")
---
--- --- Debugging global hooks
--- local has_debug = package["snacks.debug"] ~= nil
--- local debug = nil
--- if has_debug then
---   debug = require("snacks.debug")
--- end
---
--- -- Show a notification with a pretty printed dump of the object(s)
--- -- with lua treesitter highlighting and the location of the caller
--- _G.dd = function(...)
---   if debug and config.debug.enable then
---     debug.inspect(...)
---   end
--- end
---
--- -- Show a notification with a pretty backtrace
--- ---@param msg? string|string[]
--- ---@param opts? snacks.notify.Opts
--- _G.bt = function(msg, opts)
---   if debug and config.debug.enable then
---     debug.backtrace(msg, opts)
---   end
--- end
---
--- --- Run the current buffer or a range of lines.
--- --- Shows the output of `print` inlined with the code.
--- --- Any error will be shown as a diagnostic.
--- ---@param opts? {name?:string, buf?:number, print?:boolean}
--- _G.run = function(opts)
---   if debug and config.debug.enable then
---     debug.run(opts)
---   end
--- end
---
--- -- Log a message to the file `./debug.log`.
--- -- - a timestamp will be added to every message.
--- -- - accepts multiple arguments and pretty prints them.
--- -- - if the argument is not a string, it will be printed using `vim.inspect`.
--- -- - if the message is smaller than 120 characters, it will be printed on a single line.
--- --
--- -- ```lua
--- -- Snacks.debug.log("Hello", { foo = "bar" }, 42)
--- -- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
--- -- ```
--- _G.log = function(...)
---   if config.debug.enable then
---     local file = config.debug.log_file or "./debug.log"
---     local fd = io.open(file, "a+")
---     if not fd then
---       error(("Could not open file %s for writing"):format(file))
---     end
---     local c = select("#", ...)
---     local parts = {} ---@type string[]
---     for i = 1, c do
---       local v = select(i, ...)
---       parts[i] = type(v) == "string" and v or vim.inspect(v)
---     end
---     local max_length = config.debug.log_max_len or 120
---     local msg = table.concat(parts, " ")
---     msg = #msg < max_length and msg:gsub("%s+", " ") or msg
---     fd:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg)
---     fd:write("\n")
---     fd:close()
---   end
--- end
---
--- _G.metrics = function()
---   if debug and config.debug.enable then
---     debug.metrics()
---   end
--- end
---
--- -- Very simple function to profile a lua function.
--- -- * **flush**: set to `true` to use `jit.flush` in every iteration.
--- -- * **count**: defaults to 100
--- ---@param fn fun()
--- ---@param opts? {count?: number, flush?: boolean, title?: string}
--- _G.profile = function(fn, opts)
---   if debug and config.debug.enable then
---     debug.profile(fn, opts)
---   end
--- end
---
--- ---@param opts? {min?: number, show?:boolean}
--- ---@return {summary:table<string, snacks.debug.Stat>, trace:snacks.debug.Stat[], traces:snacks.debug.Trace[]}
--- _G.stats = function(opts)
---   if debug and config.debug.enable then
---     return debug.stats(opts)
---   else
---     return {}
---   end
--- end
---
--- ---@param name string?
--- _G.trace = function(name)
---   if debug and config.debug.enable then
---     return debug.trace(name)
---   end
--- end
---
--- ---@param modname string
--- ---@param mod? table
--- ---@param suffix? string
--- _G.tracemod = function(modname, mod, suffix)
---   if debug and config.debug.enable then
---     return debug.tracemod(modname, mod, suffix)
---   end
--- end
---
--- M.project = nil
---
--- -- Autocommand setup for tag tracking
--- -- function M.create_autocommands()
--- -- 	local group = api.nvim_create_augroup("Taskforge", { clear = true })
--- --
--- -- 	api.nvim_create_autocmd({ "BufEnter" }, {
--- -- 		group = group,
--- -- 		callback = function()
--- -- 			if utils.is_filetype_enabled() then
--- -- 				tag_tracker.scan_buffer()
--- -- 			end
--- -- 		end,
--- -- 	})
--- --
--- -- 	-- Debounced tag tracking
--- -- 	local timer = nil
--- -- 	api.nvim_create_autocmd({ "TextChanged", "TextChanged" }, {
--- -- 		group = group,
--- -- 		callback = function()
--- -- 			if utils.is_filetype_enabled() then
--- -- 				if timer then
--- -- 					timer:stop()
--- -- 				end
--- -- 				timer = vim.defer_fn(function()
--- -- 					tag_tracker.update_buffer()
--- -- 				end, 500) -- 500ms debounce
--- -- 			end
--- -- 		end,
--- -- 	})
--- -- end
---
--- -- return the task section for dashboard.nvim
--- function M.get_dashboard_tasks()
---   if cache.valid then
---     return dashboard.get_dashboard_tasks()
---   else
---     return {}
---   end
--- end
---
--- -- return the task section for Snacks.nvim dashboard
--- function M.get_snacks_dashboard_tasks()
---   if cache.valid then
---     return dashboard.get_snacks_dashboard_tasks()
---   else
---     return {}
---   end
--- end
---
--- -- Core setup function
--- ---Setting utlis, tasks and dashboard
--- ---@param options table?
--- function M.setup(options)
---   config:setup(options)
---   cache:setup()
---
---   cache.valid = false -- temporary disabling the plugin
---
---   if cache.valid then
---     local subcommands = require("taskforge.subcommands")
---     vim.api.nvim_create_user_command(
---       "Taskforge",
---       subcommands.run,
---       { nargs = 1, bang = true, complete = subcommands.complete, desc = "Run Task Forge command" }
---     )
---
---     --
---     tasks.setup()
---     dashboard.setup()
---     project.setup()
---     interface.setup()
---     tag_tracker.setup()
---
---     M.project = project.get_project_name()
---     -- log("Project: ", M.project)
---
---     -- Set up autocommands
---     -- M.create_autocommands()
---   else
---     vim.notify("Taskforge disabled, use `checkhealth taskforge` for diagnostic.")
---   end
--- end
---
--- return M
 
--- lua/taskforge/init.lua
+-- Core Taskforge module
 local M = {
   _config = nil,
-  _dashboard = nil,
-  _initialized = false, -- Add initialization flag
+  _initialized = false,
+  _available_deps = {},
 }
 
+local function check_dependencies()
+  -- Try to prefetch dependencies to avoid loading issues later
+  local function try_require(module_name)
+    local ok = pcall(require, module_name)
+    return ok
+  end
+
+  -- Check if taskwarrior is installed
+  if vim.fn.executable("task") ~= 1 then
+    vim.notify("Taskforge: Taskwarrior command not found. Plugin functionality will be limited.", vim.log.levels.WARN)
+    M._available_deps.taskwarrior = false
+  else
+    M._available_deps.taskwarrior = true
+  end
+
+  -- Check plenary - this is absolutely required
+  local has_plenary = try_require("plenary")
+  if not has_plenary then
+    vim.notify("Taskforge: Required dependency 'plenary.nvim' not found. Plugin cannot function.", vim.log.levels.ERROR)
+    return false
+  end
+
+  -- Check NUI components - we need at least some of these
+  local has_nui_layout = try_require("nui.layout")
+  local has_nui_tree = try_require("nui.tree")
+  local has_nui_popup = try_require("nui.popup")
+
+  if not (has_nui_layout or has_nui_tree or has_nui_popup) then
+    vim.notify("Taskforge: nui.nvim components not found. Interface features disabled.", vim.log.levels.WARN)
+    M._available_deps["nui.nvim"] = false
+  else
+    M._available_deps["nui.nvim"] = true
+  end
+
+  -- Check optional dependencies
+  local opt_deps = {
+    ["snacks"] = "folke/snacks.nvim",
+    ["telescope"] = "nvim-telescope/telescope.nvim",
+    ["fzf-lua"] = "ibhagwan/fzf-lua",
+  }
+
+  -- Check optional Lua dependencies
+  for name, repo in pairs(opt_deps) do
+    local ok = try_require(name)
+    M._available_deps[name] = ok
+
+    -- Only warn about missing dependency if it's the configured picker
+    local picker_type = config and config.get and config.get().interface and config.get().interface.integrations
+    if not ok and picker_type and picker_type[name] then
+      vim.notify(
+        "Taskforge: Configured picker '" .. repo .. "' not found. Falling back to built-in picker.",
+        vim.log.levels.WARN
+      )
+    end
+  end
+
+  -- We can continue as long as we have plenary
+  return true
+end
+
 function M.setup(user_opts)
+  -- Don't initialize twice
   if M._initialized then
     return
   end
 
+  -- Check dependencies
+  if not check_dependencies() then
+    vim.notify("Taskforge: Critical dependencies missing. Plugin disabled.", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Initialize configuration first
   M._config = require("taskforge.config")
-  M._config.set(user_opts or {}) -- Ensure empty table if nil
+  M._config.set(user_opts or {})
 
-  require("taskforge.tasks").setup()
+  -- Get config for debug setup
+  local cfg = M._config.get()
+
+  -- Setup debug module if enabled
+  if cfg.debug and cfg.debug.enable then
+    -- Check if snacks.debug is available
+    local has_debug = pcall(require, "snacks.debug")
+    if has_debug then
+      local debug = require("snacks.debug")
+      debug.setup(cfg.debug)
+    end
+  end
+
+  -- Initialize core modules and system modules in the correct order to prevent circular dependencies
   require("taskforge.project").setup()
+  require("taskforge.tasks").setup()
 
-  M._dashboard = require("taskforge.dashboard")
+  -- Initialize UI modules
+  if M._available_deps.taskwarrior then
+    -- Configure taskwarrior
+    require("taskforge.tasks").configure()
+
+    -- Initialize tracker module
+    require("taskforge.tracker").setup()
+
+    -- Set up commands
+    require("taskforge.commands").register()
+  end
+
+  -- Set initialization flag
   M._initialized = true
+
+  -- Log initialization status
+  if cfg.debug and cfg.debug.enable then
+    utils.notify("Taskforge initialized successfully", vim.log.levels.INFO)
+  end
 end
 
-function M.dashboard()
+-- Function to access dashboard from other plugins
+function M.get_dashboard_section()
   if not M._initialized then
-    M.setup({}) -- Auto-initialize with empty config if forgotten
+    -- Just do minimal initialization
+    M._config = require("taskforge.config")
+    local user_opts = {}
+    M._config.set(user_opts)
   end
-  return M._dashboard
+
+  -- Try the standalone dashboard first (for testing)
+  local ok, standalone = pcall(require, "taskforge.standalone_dashboard")
+  if ok and standalone.create_standalone_section then
+    -- Don't try to use utils or other modules that might cause circular dependencies
+    vim.notify("Using standalone dashboard section")
+    return standalone.create_standalone_section()
+  end
+
+  -- Fall back to regular dashboard
+  local ok_dashboard, dashboard = pcall(require, "taskforge.dashboard")
+  if ok_dashboard then
+    vim.notify("Using regular dashboard section")
+    return dashboard.create_section()
+  end
+
+  vim.notify("No dashboard section available")
+  return {}
+end
+
+-- Function to get project info
+function M.get_current_project()
+  if not M._initialized then
+    M.setup({})
+  end
+
+  local ok, project = pcall(require, "taskforge.project")
+  if ok then
+    return project.current()
+  end
+
+  return nil
+end
+
+-- Function to open task interface
+function M.open_task_interface()
+  if not M._initialized then
+    M.setup({})
+  end
+
+  if not M._available_deps.taskwarrior then
+    vim.notify("Taskforge: Taskwarrior not available", vim.log.levels.ERROR)
+    return
+  end
+
+  local ok, interface = pcall(require, "taskforge.interface")
+  if ok then
+    interface.open_task_interface()
+  end
+end
+
+-- Function to open task picker
+function M.open_task_picker()
+  if not M._initialized then
+    M.setup({})
+  end
+
+  if not M._available_deps.taskwarrior then
+    vim.notify("Taskforge: Taskwarrior not available", vim.log.levels.ERROR)
+    return
+  end
+
+  local ok, picker = pcall(require, "taskforge.picker")
+  if ok then
+    picker.open_task_picker()
+  end
 end
 
 return M

@@ -5,10 +5,24 @@
 local M = {}
 
 local utils = require("taskforge.utils")
-local config = require("taskforge.contig")
-local interface = require("taskforge.interface")
+local config = require("taskforge.config")
+
+-- Safely load the interface module
+local interface = nil
+local ok_interface = pcall(function()
+  interface = require("taskforge.interface")
+end)
+
 local project_tasks = {}
 local other_tasks = {}
+
+-- Debug function - write to log file if debug enabled
+local function debug_log(msg, data)
+  local cfg = config.get()
+  if cfg.debug and cfg.debug.enable then
+    utils.debug_log("DASHBOARD", msg, data)
+  end
+end
 
 --- Gets default highlight groups
 --- @param which string (urgent|not_urgent) group name
@@ -64,9 +78,9 @@ local function setup_hl_groups()
 end
 
 local function hl_tasks()
+  debug_log("Highlighting tasks")
   setup_hl_groups()
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  -- log()
   for i, line in ipairs(lines) do
     if utils.in_table(project_tasks, line) then
       vim.api.nvim_buf_add_highlight(0, -1, "TFDashboardHeaderUrgent", i - 1, 0, -1)
@@ -77,65 +91,94 @@ local function hl_tasks()
 end
 
 function M.create_section()
-  -- log()
+  debug_log("Creating dashboard section")
+
+  -- Check if dashboard feature is enabled
+  local cfg = config.get().dashboard
+  if not cfg or not cfg.snacks_options or cfg.snacks_options.enable == false then
+    debug_log("Dashboard disabled in config")
+    return {}
+  end
+
+  debug_log("Dashboard config", cfg)
+
   local title = {
-    icon = config.get().dashboard.snacks_options.icon,
-    title = config.get().dashboard.snacks_options.title,
-    pane = config.get().dashboard.snacks_options.pane or 1,
+    icon = cfg.snacks_options.icon or "",
+    title = cfg.snacks_options.title or "Tasks",
+    pane = cfg.snacks_options.pane or 1,
   }
-  if config.get().dashboard.snacks_options.key ~= nil and config.get().dashboard.snacks_options.action ~= nil then
-    if config.get().dashboard.snacks_options.action == "taskwarrior-tui" then
+
+  if cfg.snacks_options.key and cfg.snacks_options.action then
+    debug_log("Setting up action", { key = cfg.snacks_options.key, action = cfg.snacks_options.action })
+
+    if cfg.snacks_options.action == "taskwarrior-tui" and ok_interface and interface then
       title.action = function()
         interface.open_tt()
       end
-    elseif config.get().dashboard.snacks_options.action == "project" then
+    elseif cfg.snacks_options.action == "project" then
       title.action = function()
         -- TODO: hook the project view
       end
-    elseif config.get().dashboard.snacks_options.action == "tasks" then
+    elseif cfg.snacks_options.action == "tasks" then
       title.action = function()
         -- TODO: hook the overall view
       end
     end
+
     if title.action then
-      title.key = config.get().dashboard.snacks_options.key
+      title.key = cfg.snacks_options.key
     end
   end
+
+  local items = M.get_snacks_items()
+  debug_log("Retrieved items count", #items)
+
   local section = {
-    pane = config.get().dashboard.snacks_options.pane or 1,
-    padding = config.get().dashboard.snacks_options.padding,
-    indent = config.get().dashboard.snacks_options.indent,
-    text = M.get_snacks_items(),
+    pane = cfg.snacks_options.pane or 1,
+    padding = cfg.snacks_options.padding or 1,
+    indent = cfg.snacks_options.indent or 3,
+    text = items,
   }
-  section.height = config.get().dashboard.snacks_options.height
-      and math.max(config.get().dashboard.snacks_options.height, #section.text)
-    or #section.text
 
-  -- setup autocmd to catch Snacks.Dashboard events, for reference here they are:
-  --  SnacksDashboardOpened
-  --  SnacksDashboardClosed
-  --  SnacksDashboardUpdatePre
-  --  SnacksDashboardUpdatePost
-  --  SncaksDashboardUpdate
+  section.height = cfg.snacks_options.height and math.max(cfg.snacks_options.height, #section.text) or #section.text
 
+  debug_log("Section setup", { pane = section.pane, height = section.height, items = #section.text })
+
+  -- Setup autocmd to catch Snacks.Dashboard events
   vim.api.nvim_create_autocmd("User", {
     pattern = "SnacksDashboardLoaded",
     callback = hl_tasks,
   })
+
   return { title, section }
 end
 
 function M.get_snacks_items()
-  local ok, tasks = pcall(function()
-    return require("taskforge.tasks").get_dashboard_tasks()
+  debug_log("Getting Snacks items")
+
+  -- Get tasks from the tasks module
+  local tasks_result
+  local ok, err = pcall(function()
+    tasks_result = require("taskforge.tasks").get_dashboard_tasks()
   end)
 
-  if not ok or not tasks then
-    vim.notify("Failed to get dashboard tasks", vim.log.levels.ERROR)
+  if not ok then
+    debug_log("Error getting dashboard tasks", err)
+    utils.notify("Failed to get dashboard tasks: " .. tostring(err), vim.log.levels.ERROR)
     return {}
   end
 
-  return M.process_tasks_for_snacks(tasks.project_tasks, tasks.other_tasks)
+  if not tasks_result then
+    debug_log("No tasks data returned")
+    return {}
+  end
+
+  debug_log("Tasks data", {
+    project_tasks = #(tasks_result.project_tasks or {}),
+    other_tasks = #(tasks_result.other_tasks or {}),
+  })
+
+  return M.process_tasks_for_snacks(tasks_result.project_tasks or {}, tasks_result.other_tasks or {})
 end
 
 --- Format tasks for Snacks dashboard
@@ -143,15 +186,23 @@ end
 --- @param other_tasks table
 --- @return table[]
 function M.process_tasks_for_snacks(project_tasks, other_tasks)
-  local items = {}
+  debug_log("Processing tasks", {
+    project_count = #project_tasks,
+    other_count = #other_tasks,
+  })
 
-  if M.project ~= nil then
+  local items = {}
+  local current_project = require("taskforge.project").current()
+
+  if current_project then
+    debug_log("Current project", current_project)
     table.insert(
       items,
-      { M.project, hl = "dir", width = config.get().dashboard.format.max_width - 1, align = "center" }
+      { current_project, hl = "dir", width = config.get().dashboard.format.max_width - 1, align = "center" }
     )
     table.insert(items, { "\n", hl = "dir" })
   end
+
   -- Add project tasks
   for _, task in ipairs(project_tasks) do
     table.insert(items, M.create_snacks_item(task))
@@ -167,6 +218,7 @@ function M.process_tasks_for_snacks(project_tasks, other_tasks)
     table.insert(items, M.create_snacks_item(task))
   end
 
+  debug_log("Processed items count", #items)
   return items
 end
 
@@ -174,16 +226,20 @@ end
 --- @param task table
 --- @return table
 function M.create_snacks_item(task)
-  local formatted = M.format_task_line(task, config.get().dashboard.format)
-  local highlight
+  local cfg = config.get()
+  debug_log("Creating item for task", { id = task.id, description = task.description })
+
+  local formatted = M.format_task_line(task, cfg.dashboard.format)
+  local highlight = "normal"
+
   if
-    task.urgency ~= nil
-    and config.get().highlights.urgent.threshold ~= nil
-    and tonumber(task.urgency) >= config.get().highlights.urgent.threshold
+    task.urgency
+    and cfg.highlights
+    and cfg.highlights.urgent
+    and cfg.highlights.urgent.threshold
+    and tonumber(task.urgency) >= cfg.highlights.urgent.threshold
   then
     highlight = "special"
-  else
-    highlight = "normal"
   end
 
   return {
@@ -198,13 +254,26 @@ end
 --- @return string
 function M.format_task_line(task, fmt_config)
   local parts = {}
+
+  -- Ensure column_widths is initialized
+  fmt_config.column_widths = fmt_config.column_widths
+    or {
+      project = 12,
+      description = 30,
+      due = 10,
+      urgency = 5,
+    }
+
   for _, col in ipairs(fmt_config.columns) do
     local val = task[col] or ""
     if col == "project" then
       val = utils.replace_project_name(val, fmt_config)
     end
-    table.insert(parts, string.format("%-" .. fmt_config.column_widths[col] .. "s", val))
+
+    local width = fmt_config.column_widths[col] or 10
+    table.insert(parts, string.format("%-" .. width .. "s", val))
   end
+
   return table.concat(parts, " ")
 end
 
