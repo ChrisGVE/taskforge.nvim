@@ -1,7 +1,8 @@
 # taskforge
 
 You are an expert at lua coding in the context of neovim.
-We are working on this project and have made some big progress. In particular around plugin initialization, avoiding race conditions and developed a dummy entry for the dashboard, which we'll continue when
+When your answer involve providing multiple files, give them one by one, waiting for my signal to give me the next one.
+We have successfully collaborated until now on this project and we will continue to do so, which includes you providing suggestions for improvement even when not prompted and we'll decided together to act on them or place them in this file for further reference.
 
 Our current focus is the tagging detection and task creation in taskwarrior and the next steps are as follows:
 
@@ -14,6 +15,13 @@ Our current focus is the tagging detection and task creation in taskwarrior and 
 - lastly when a file has never been handled by the plugin and contains multiple tagged comments, the plugin should:
   - for tags that are configured as automated creating, those should be handled silently
   - for tags that are configured as creation after ask or manual, those should be handled in one go with the user presented with a list that can be navigated and having the code moved to where the selected comment is placed. The user should have the ability to exclude them if desired. After that the plugin will create the respective tasks in the background and link the comments in the file.
+- Because of the size of `tracker.lua`, we opted to refactor it within `tracker/`. With the same concept we intended to create language specific files in `lang/` in order to modularlize the tool and make extension easier. Some of the plan is provided in the file `architecture.md` which is unfortunately not complete but should be a starting point.
+
+**Our immediate steps are:**
+
+- finalize the refactoring, and complete the `architecture` document.
+- ensure that the rest of the plugin integrates with the changes implied by the refactoring.
+- test whether changes are working
 
 There will be further work later such as using lsp signals for file changes. To prevent files from being closed before all plugin updates to the file are completed. And other things, but let's start with the above bullet points.
 
@@ -112,3 +120,20 @@ The principle is to avoid a inordinate number of plugins and thus dependencies, 
 4. Unit testing.
 5. Code documentation.
 6. User documentation.
+
+## Future enhancements
+
+1. Status indicators
+
+- Add visual indicators in the gutter for tracked comments
+- Show different colors/icons based on task status
+
+2. Command Lint Integration
+
+- Add support for opening files directly from taskwarrior-tui
+- Hook into external tools that might modify taasks
+
+3. Enhanced Statistics
+
+- Track metrics on task completion rates
+- Genertic reports on task categories, priorities, etc.
