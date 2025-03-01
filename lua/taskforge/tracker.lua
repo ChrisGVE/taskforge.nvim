@@ -7,10 +7,19 @@ local ns = vim.api.nvim_create_namespace("taskforge_tags")
 
 -- UUID pattern for task identification in comments
 M.uuid_pattern = "%[task:([0-9a-f%-]+)%]"
+-- Pattern for opted-out comments that should not be tracked
+M.optout_pattern = "%[notrack%]"
 
 function M.setup()
   M.buf_cache = {} -- Buffer cache of detected tags
   M.task_cache = {} -- Cache of task UUIDs to location
+
+  -- Track edit state to handle debounce properly
+  M.edit_state = {
+    active = false,
+    debounce_timer = nil,
+    last_change = nil,
+  }
 
   -- Load existing task UUIDs from taskwarrior
   M._load_tasks()
@@ -22,10 +31,24 @@ function M.setup()
     end,
   })
 
+  -- Handle editing modes with proper debounce
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     callback = function(evt)
-      -- Use debounced processing for text changes
-      M._debounced_process_buffer(evt.buf)
+      M.edit_state.active = true
+      M.edit_state.last_change = vim.loop.now()
+
+      -- Reset debounce timer on each change
+      M._reset_debounce_timer(evt.buf)
+    end,
+  })
+
+  -- Handle when editing ends
+  vim.api.nvim_create_autocmd({ "InsertLeave", "TextChangedP" }, {
+    callback = function(evt)
+      M.edit_state.active = false
+
+      -- Process after a short delay to ensure all changes are completed
+      M._reset_debounce_timer(evt.buf)
     end,
   })
 
@@ -38,31 +61,40 @@ function M.setup()
       M.remove_tag_at_cursor()
     elseif subcmd == "link" then
       M.link_tag_to_task()
+    elseif subcmd == "optout" then
+      M.add_optout_at_cursor()
+    elseif subcmd == "process" then
+      M.process_all_comments()
     end
   end, {
     nargs = 1,
     complete = function()
-      return { "add", "remove", "link" }
+      return { "add", "remove", "link", "optout", "process" }
     end,
   })
 
   -- Set up debounce timer
-  M._timer = nil
   M._debounce_ms = config.get().tags.debounce or 500
+
+  -- Set up formatter hooks
+  M.setup_formatter_hooks()
 end
 
--- Debounced buffer processing
-function M._debounced_process_buffer(bufnr)
+-- Reset debounce timer with current settings
+function M._reset_debounce_timer(bufnr)
   -- Cancel previous timer if it exists
-  if M._timer then
-    vim.loop.timer_stop(M._timer)
-    M._timer = nil
+  if M.edit_state.debounce_timer then
+    vim.loop.timer_stop(M.edit_state.debounce_timer)
+    M.edit_state.debounce_timer = nil
   end
 
   -- Create new timer
-  M._timer = vim.defer_fn(function()
-    M.process_buffer(bufnr)
-    M._timer = nil
+  M.edit_state.debounce_timer = vim.defer_fn(function()
+    -- Only process if editing has stopped for a while or this is an explicit processing request
+    if not M.edit_state.active or (vim.loop.now() - M.edit_state.last_change > M._debounce_ms) then
+      M.process_buffer(bufnr)
+      M.edit_state.debounce_timer = nil
+    end
   end, M._debounce_ms)
 end
 
@@ -95,6 +127,275 @@ function M._load_tasks()
   end
 
   utils.debug_log("TRACKER", "Loaded task cache", #vim.tbl_keys(M.task_cache))
+end
+
+-- Process all tagged comments in new file
+function M.process_all_comments()
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  -- Check if multiline module is available for enhanced comment detection
+  local has_multiline = pcall(require, "taskforge.multiline")
+
+  -- Identify all comments in the buffer
+  local comment_nodes = M._get_comment_nodes(bufnr)
+  local tag_candidates = {}
+
+  -- Gather all tag candidates first without processing
+  for _, node in ipairs(comment_nodes) do
+    local start_row, _, _, _ = node:range()
+    local comment_text = vim.treesitter.get_node_text(node, bufnr)
+
+    -- Skip if this comment has optout marker or already has UUID
+    if comment_text:match(M.optout_pattern) or comment_text:match(M.uuid_pattern) then
+      goto continue
+    end
+
+    -- Check for tags
+    local ft = vim.bo[bufnr].filetype
+    local cfg = config.get()
+
+    for tag, def in pairs(cfg.tags.definitions or {}) do
+      -- Include alternative tags in the search
+      local tags_to_check = { tag }
+      if def.alt then
+        vim.list_extend(tags_to_check, def.alt)
+      end
+
+      -- Check each possible tag
+      for _, tag_name in ipairs(tags_to_check) do
+        if comment_text:match(tag_name) then
+          -- Found a tag, store the info for batch processing
+          table.insert(tag_candidates, {
+            lnum = start_row,
+            text = comment_text,
+            tag = tag_name,
+            def = def,
+            node = node,
+          })
+          goto continue
+        end
+      end
+    end
+
+    ::continue::
+  end
+
+  -- If we found tags, show them to the user
+  if #tag_candidates > 0 then
+    M._process_tag_candidates(bufnr, tag_candidates)
+  else
+    utils.notify("No untracked tags found in file")
+  end
+end
+
+-- Process tag candidates in a batch
+function M._process_tag_candidates(bufnr, candidates)
+  -- Group candidates by creation mode
+  local auto_create = {}
+  local ask_create = {}
+  local manual_create = {}
+
+  for _, candidate in ipairs(candidates) do
+    if candidate.def.create == "auto" then
+      table.insert(auto_create, candidate)
+    elseif candidate.def.create == "ask" then
+      table.insert(ask_create, candidate)
+    elseif candidate.def.create == "manual" then
+      table.insert(manual_create, candidate)
+    end
+  end
+
+  -- Process auto-create tags silently
+  for _, candidate in ipairs(auto_create) do
+    M._process_tag_auto(bufnr, candidate)
+  end
+
+  -- Process manual-create tags with notification
+  for _, candidate in ipairs(manual_create) do
+    M._process_tag_manual(bufnr, candidate)
+  end
+
+  -- Process ask-create tags with UI
+  if #ask_create > 0 then
+    M._show_tag_selection(bufnr, ask_create)
+  end
+
+  -- Provide summary
+  local total_processed = #auto_create + #manual_create
+  if total_processed > 0 then
+    utils.notify(
+      string.format("Processed %d tags automatically, %d tags require confirmation", total_processed, #ask_create)
+    )
+  end
+end
+
+-- Process auto-create tag
+function M._process_tag_auto(bufnr, candidate)
+  local extract_result = M._extract_description(bufnr, candidate.node, candidate.tag)
+  if not extract_result or not extract_result.description then
+    utils.debug_log("TRACKER", "Failed to extract description for auto tag", candidate.tag)
+    return
+  end
+
+  -- Prepare task info
+  local file_path = vim.api.nvim_buf_get_name(bufnr)
+  local task_info = {
+    description = candidate.tag .. ": " .. extract_result.description,
+    file = file_path,
+    line = candidate.lnum + 1,
+    project = require("taskforge.project").current(),
+    tags = candidate.def.tags,
+    due = candidate.def.due,
+    priority = candidate.def.priority,
+  }
+
+  -- Create task automatically
+  require("taskforge.tasks").create(task_info.description, task_info, function(uuid)
+    if uuid then
+      -- Link the UUID back to the comment
+      M._link_uuid_to_comment(bufnr, candidate.lnum, uuid)
+    end
+  end)
+end
+
+-- Process manual-create tag
+function M._process_tag_manual(bufnr, candidate)
+  local extract_result = M._extract_description(bufnr, candidate.node, candidate.tag)
+  if not extract_result or not extract_result.description then
+    utils.debug_log("TRACKER", "Failed to extract description for manual tag", candidate.tag)
+    return
+  end
+
+  -- Just notify, don't create task
+  utils.notify(
+    "Tag found: " .. candidate.tag .. ": " .. extract_result.description .. "\nUse :TaskforgeTag add to create task",
+    vim.log.levels.INFO
+  )
+end
+
+-- Show UI for selecting which tags to create tasks for
+function M._show_tag_selection(bufnr, candidates)
+  -- Format items for selection
+  local items = {}
+  for i, candidate in ipairs(candidates) do
+    local extract_result = M._extract_description(bufnr, candidate.node, candidate.tag)
+    local desc = extract_result and extract_result.description or "No description"
+
+    table.insert(items, {
+      text = string.format("%s: %s (line %d)", candidate.tag, desc, candidate.lnum + 1),
+      index = i,
+      candidate = candidate,
+    })
+  end
+
+  vim.ui.select(items, {
+    prompt = "Select tags to create tasks for:",
+    format_item = function(item)
+      return item.text
+    end,
+  }, function(selected)
+    if selected then
+      -- Jump to the selected tag
+      vim.api.nvim_win_set_cursor(0, { selected.candidate.lnum + 1, 0 })
+
+      -- Ask for confirmation
+      utils.confirm_yesno("Create task for: " .. selected.text .. "?", function(choice)
+        if choice == 1 then -- Yes
+          -- Similar to process_tag_auto
+          local extract_result = M._extract_description(bufnr, selected.candidate.node, selected.candidate.tag)
+          if extract_result and extract_result.description then
+            local file_path = vim.api.nvim_buf_get_name(bufnr)
+            local task_info = {
+              description = selected.candidate.tag .. ": " .. extract_result.description,
+              file = file_path,
+              line = selected.candidate.lnum + 1,
+              project = require("taskforge.project").current(),
+              tags = selected.candidate.def.tags,
+              due = selected.candidate.def.due,
+              priority = selected.candidate.def.priority,
+            }
+
+            require("taskforge.tasks").create(task_info.description, task_info, function(uuid)
+              if uuid then
+                M._link_uuid_to_comment(bufnr, selected.candidate.lnum, uuid)
+
+                -- Show the next candidate
+                vim.defer_fn(function()
+                  -- Remove the processed item
+                  table.remove(candidates, selected.index)
+                  if #candidates > 0 then
+                    M._show_tag_selection(bufnr, candidates)
+                  else
+                    utils.notify("All selected tags processed")
+                  end
+                end, 100)
+              end
+            end)
+          end
+        else
+          -- Skip to next
+          table.remove(candidates, selected.index)
+          if #candidates > 0 then
+            vim.defer_fn(function()
+              M._show_tag_selection(bufnr, candidates)
+            end, 10)
+          else
+            utils.notify("No tags selected for processing")
+          end
+        end
+      end)
+    else
+      utils.notify("Tag processing cancelled")
+    end
+  end)
+end
+
+-- Extract tag description more robustly
+function M._extract_description(bufnr, node, tag)
+  if not node then
+    return { tag = tag, description = "No description" }
+  end
+
+  local comment_text = vim.treesitter.get_node_text(node, bufnr)
+  local ft = vim.bo[bufnr].filetype
+
+  -- First try to use tag_patterns library for smart detection
+  local tag_patterns = require("taskforge.tag_patterns")
+  local parsed = tag_patterns.parse_tag_comment(comment_text, ft, { tag })
+
+  if parsed and parsed.description then
+    return parsed
+  end
+
+  -- Fallbacks for different formats
+  local desc
+
+  -- Try format with colon: "TAG: description"
+  desc = comment_text:match(tag .. ":%s*(.+)")
+  if desc then
+    return { tag = tag, description = desc:gsub("%*/+$", ""):gsub("%s+$", ""):gsub("^%s+", "") }
+  end
+
+  -- Try format with parentheses: "TAG(meta): description"
+  desc = comment_text:match(tag .. "%([^)]*%):%s*(.+)")
+  if desc then
+    return { tag = tag, description = desc:gsub("%*/+$", ""):gsub("%s+$", ""):gsub("^%s+", "") }
+  end
+
+  -- Try any text after the tag
+  desc = comment_text:match(tag .. "[^:]*:%s*(.+)")
+  if desc then
+    return { tag = tag, description = desc:gsub("%*/+$", ""):gsub("%s+$", ""):gsub("^%s+", "") }
+  end
+
+  -- Try to get the rest of the line after the tag
+  desc = comment_text:match(tag .. "(.+)")
+  if desc then
+    return { tag = tag, description = desc:gsub("%*/+$", ""):gsub("%s+$", ""):gsub("^%s+", "") }
+  end
+
+  -- Default fallback
+  return { tag = tag, description = "No description" }
 end
 
 -- Get comment nodes from buffer using TreeSitter
@@ -232,10 +533,16 @@ function M.process_buffer(bufnr)
     if comment_text and #comment_text > 0 then
       utils.debug_log("TRACKER", "Processing comment", comment_text)
 
+      -- Skip if comment has opt-out marker
+      if comment_text:match(M.optout_pattern) then
+        utils.debug_log("TRACKER", "Skipping opted-out comment", comment_text:sub(1, 50))
+        goto continue
+      end
+
       -- First check if this comment has a task UUID
       local uuid = comment_text:match(M.uuid_pattern)
       if uuid then
-        -- This is a tracked comment, update the cache
+        -- This is a tracked comment, verify and update the cache
         utils.debug_log("TRACKER", "Found tracked comment with UUID", uuid)
         M.handle_tracked_comment(bufnr, start_row, comment_text, uuid)
       else
@@ -308,7 +615,7 @@ function M.process_buffer(bufnr)
     end
   end
 
-  -- Check for removed tags
+  -- Check for removed or modified tags
   M._check_removed_tags(bufnr)
 end
 
@@ -319,6 +626,46 @@ function M.clear_tags(bufnr)
 
   -- Clear cache for this buffer
   M.buf_cache[bufnr] = nil
+end
+
+-- Add a visual marker for a tag
+function M._add_tag_marker(bufnr, lnum, tag)
+  vim.api.nvim_buf_set_extmark(bufnr, ns, lnum, 0, {
+    virt_text = { { "⚑ " .. tag, "Comment" } },
+    virt_text_pos = "eol",
+  })
+end
+
+-- Process a multiline comment
+function M.process_multiline_comment(bufnr, lnum)
+  -- This function uses the multiline module to handle multiline comments
+  local multiline = require("taskforge.multiline")
+  return multiline.process_comment_at_cursor()
+end
+
+-- Add opt-out marker to a comment
+function M._add_optout_to_comment(bufnr, lnum)
+  local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1]
+
+  -- Add [notrack] marker to the comment
+  local new_line
+
+  -- Check if line ends with a block comment marker
+  if line:match("%*/+%s*$") then
+    -- Insert before closing */
+    new_line = line:gsub("%*/+%s*$", " [notrack] */")
+  else
+    -- Just append
+    new_line = line .. " [notrack]"
+  end
+
+  vim.api.nvim_buf_set_lines(bufnr, lnum, lnum + 1, false, { new_line })
+  utils.notify("Added [notrack] marker to prevent future prompts", vim.log.levels.INFO)
+end
+
+-- Helper function to escape pattern special characters
+function escape_pattern(text)
+  return text:gsub("[%%%(%)%.%[%]%*%+%-%?%^%$]", "%%%1")
 end
 
 -- Handle a tracked comment (with UUID)
@@ -339,10 +686,44 @@ function M.handle_tracked_comment(bufnr, lnum, comment_text, uuid)
         status = task.status,
       }
     else
-      -- Task might have been deleted, remove UUID from comment?
+      -- Task might have been deleted, handle this case
       utils.debug_log("TRACKER", "UUID in comment doesn't match any task", uuid)
+
+      -- Warn the user and offer to remove the UUID
+      utils.confirm_yesno("Task " .. uuid .. " no longer exists. Remove UUID from comment?", function(choice)
+        if choice == 1 then
+          -- Remove UUID from comment
+          local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1]
+          local new_line = line:gsub("%s*%[task:" .. uuid .. "%]", "")
+          vim.api.nvim_buf_set_lines(bufnr, lnum, lnum + 1, false, { new_line })
+          utils.notify("UUID removed from comment", vim.log.levels.INFO)
+        end
+      end)
       return
     end
+  end
+
+  -- Check if UUID format in comment has been modified
+  local original_uuid_marker = "[task:" .. uuid .. "]"
+  if not comment_text:match(escape_pattern(original_uuid_marker)) then
+    -- UUID is present but in modified form, this could break tracking
+    utils.debug_log("TRACKER", "UUID format modified", uuid)
+
+    -- Warn the user about modified UUID format
+    utils.confirm_yesno(
+      "UUID format appears to be modified, which could break task tracking. Restore original format?",
+      function(choice)
+        if choice == 1 then
+          -- Get current line
+          local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1]
+
+          -- Attempt to fix the UUID format
+          local new_line = line:gsub("%[task:[0-9a-f%-]+%]", original_uuid_marker)
+          vim.api.nvim_buf_set_lines(bufnr, lnum, lnum + 1, false, { new_line })
+          utils.notify("UUID format restored", vim.log.levels.INFO)
+        end
+      end
+    )
   end
 
   -- Update cache with current location
@@ -394,36 +775,18 @@ function M.handle_tag(bufnr, lnum, comment_text, tag, def, parsed_description)
   if parsed_description then
     desc = parsed_description
   else
-    -- First try to extract using common format patterns
-    local tag_patterns = require("taskforge.tag_patterns")
-    local ft = vim.bo[bufnr].filetype
-    local parsed = tag_patterns.parse_tag_comment(comment_text, ft, { tag })
+    -- Use the more robust extraction method
+    local extract_result = M._extract_description(bufnr, nil, tag)
+    desc = extract_result and extract_result.description or "No description"
 
-    if parsed and parsed.description then
-      desc = parsed.description
-    else
-      -- Fall back to configured format if tag_patterns couldn't extract description
-      local tag_format = cfg.tags.tag_format or "%s*\\(%s*\\):"
-      local tag_pattern = tag_format:gsub("TAG", tag)
-
-      -- Try different patterns to extract description
-      desc = comment_text:match(tag .. ":%s*(.+)") -- Simple "TAG: description"
+    -- If no node was provided (called directly), try to extract from comment_text
+    if not extract_result or not extract_result.description then
+      -- Fall back to simple extraction from text
+      desc = comment_text:match(tag .. ":%s*(.+)")
       if not desc then
-        desc = comment_text:match(tag_pattern .. "%s*(.+)") -- Using configured format
-      end
-      if not desc then
-        desc = comment_text:match(tag .. "[^:]*:%s*(.+)") -- Any text between TAG and :
-      end
-
-      -- If still not found, use default
-      if not desc or desc == "" then
         desc = "No description"
       end
     end
-
-    -- Clean up description - remove any trailing comment markers and whitespace
-    desc = desc:gsub("%*/+$", ""):gsub("%s+$", "")
-    desc = desc:gsub("^%s+", "") -- Remove leading whitespace too
   end
 
   utils.debug_log("TRACKER", "Extracted description", { tag = tag, description = desc })
@@ -456,6 +819,12 @@ function M.handle_tag(bufnr, lnum, comment_text, tag, def, parsed_description)
     return
   end
 
+  -- Also check if the comment has opted out from tracking
+  if comment_text:match(M.optout_pattern) then
+    -- Opted out, don't create a task
+    return
+  end
+
   -- Create task based on configuration
   if def.create == "auto" then
     utils.debug_log("TRACKER", "Auto-creating task for tag", tag)
@@ -468,11 +837,19 @@ function M.handle_tag(bufnr, lnum, comment_text, tag, def, parsed_description)
   elseif def.create == "ask" then
     -- Use centralized confirmation dialog
     utils.confirm_yesno("Create task for: " .. task_info.description .. "?", function(choice)
-      if choice == 1 then -- Yes
+      if choice == 1 then
         require("taskforge.tasks").create(task_info.description, task_info, function(uuid)
           if uuid then
             -- Link the UUID back to the comment
             M._link_uuid_to_comment(bufnr, lnum, uuid)
+          end
+        end)
+      else
+        -- User declined, offer to add opt-out marker
+        utils.confirm_yesno("Add [notrack] marker to prevent future prompts?", function(choice2)
+          if choice2 == 1 then
+            -- Add opt-out marker
+            M._add_optout_to_comment(bufnr, lnum)
           end
         end)
       end
@@ -483,14 +860,6 @@ function M.handle_tag(bufnr, lnum, comment_text, tag, def, parsed_description)
       vim.log.levels.INFO
     )
   end
-end
-
--- Add a visual marker for a tag
-function M._add_tag_marker(bufnr, lnum, tag)
-  vim.api.nvim_buf_set_extmark(bufnr, ns, lnum, 0, {
-    virt_text = { { "⚑ " .. tag, "Comment" } },
-    virt_text_pos = "eol",
-  })
 end
 
 -- Link a UUID to a comment by inserting it into the comment text
@@ -518,7 +887,29 @@ function M._link_uuid_to_comment(bufnr, lnum, uuid)
       return
     end
 
-    -- Get the current line
+    -- Try to use multiline module if available
+    local has_multiline, multiline = pcall(require, "taskforge.multiline")
+    if has_multiline then
+      local context = multiline.detect_comment_context(bufnr, lnum)
+      if context.is_comment then
+        if multiline.add_uuid_to_comment(bufnr, context, uuid) then
+          -- UUID added to multiline comment successfully
+          utils.debug_log("TRACKER", "UUID added to multiline comment", uuid)
+          utils.notify("Task created and linked to comment", vim.log.levels.INFO)
+
+          -- Update cache
+          M.task_cache[uuid] = {
+            file = vim.api.nvim_buf_get_name(bufnr),
+            line = lnum + 1,
+            status = "pending",
+          }
+
+          return
+        end
+      end
+    end
+
+    -- Fallback: Get the current line
     local line = vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, false)[1]
 
     -- Debug the line content
@@ -570,7 +961,7 @@ function M._link_uuid_to_comment(bufnr, lnum, uuid)
   end)
 end
 
--- Check for removed tags in a buffer
+-- Check for removed or modified tags in a buffer
 function M._check_removed_tags(bufnr)
   local cfg = config.get() -- Explicitly get config
 
@@ -588,11 +979,11 @@ function M._check_removed_tags(bufnr)
       local line = lines[lnum + 1]
 
       -- If the line has changed significantly or tag no longer exists
-      if not vim.startswith(line, tag_data.text:sub(1, 10)) then
-        -- Tag was removed
+      if not tag_data.text or not vim.startswith(line, tag_data.text:sub(1, 10)) then
+        -- Tag was removed or significantly modified
         if tag_data.uuid then
           -- This was a tracked tag with UUID
-          utils.debug_log("TRACKER", "Tag with UUID removed", tag_data.uuid)
+          utils.debug_log("TRACKER", "Tag with UUID removed or modified", tag_data.uuid)
 
           -- Find the tag definition that would have created this task
           local tag_def = nil
@@ -635,40 +1026,54 @@ function M._check_removed_tags(bufnr)
             )
           end
         end
+      else
+        -- Line still exists but might have been modified
+        -- Check if the UUID is still intact
+        if tag_data.uuid then
+          local uuid_present = line:match(M.uuid_pattern)
+          if not uuid_present or uuid_present ~= tag_data.uuid then
+            -- UUID was removed or modified, warn the user
+            utils.debug_log("TRACKER", "UUID modified or removed", {
+              original = tag_data.uuid,
+              current = uuid_present,
+            })
+
+            -- Only warn if this isn't part of an ongoing edit
+            if not M.edit_state.active then
+              utils.confirm_yesno("Task reference (UUID) was modified or removed. Restore it?", function(choice)
+                if choice == 1 then
+                  -- Try to restore the UUID
+                  local new_line = line
+                  if uuid_present then
+                    -- Replace incorrect UUID
+                    new_line = line:gsub("%[task:[0-9a-f%-]+%]", "[task:" .. tag_data.uuid .. "]")
+                  else
+                    -- Add UUID back
+                    new_line = M._add_uuid_to_line(line, tag_data.uuid)
+                  end
+
+                  vim.api.nvim_buf_set_lines(bufnr, lnum, lnum + 1, false, { new_line })
+                  utils.notify("Task reference restored", vim.log.levels.INFO)
+                end
+              end)
+            end
+          end
+        end
       end
     end
   end
 end
 
--- Jump to task location
-function M.jump_to_task(uuid)
-  -- Check if we have this task in cache
-  if M.task_cache[uuid] then
-    local location = M.task_cache[uuid]
-
-    -- Check if file exists
-    local file_exists = vim.fn.filereadable(location.file) == 1
-    if file_exists then
-      -- Open the file
-      vim.cmd("edit " .. location.file)
-
-      -- Go to the line
-      if location.line then
-        vim.api.nvim_win_set_cursor(0, { location.line, 0 })
-
-        -- Center the view
-        vim.cmd("normal! zz")
-
-        return true
-      end
-    else
-      utils.notify("File not found: " .. location.file, vim.log.levels.ERROR)
-    end
+-- Helper function to add UUID to a line based on comment style
+function M._add_uuid_to_line(line, uuid)
+  -- Different comment endings based on line content
+  if line:match("%*/") then
+    -- Block comment, insert before closing */
+    return line:gsub("%*/", " [task:" .. uuid .. "] */")
   else
-    utils.notify("Task location not found for UUID: " .. uuid, vim.log.levels.ERROR)
+    -- Just append
+    return line .. " [task:" .. uuid .. "]"
   end
-
-  return false
 end
 
 -- Add a tag at the current cursor position
@@ -680,6 +1085,46 @@ function M.add_tag_at_cursor()
   -- Check if line is a comment
   local bufnr = vim.api.nvim_get_current_buf()
   local is_comment = false
+
+  -- Try to use multiline module first if available
+  local has_multiline, multiline = pcall(require, "taskforge.multiline")
+  if has_multiline then
+    local context = multiline.detect_comment_context(bufnr, lnum)
+    if context.is_comment then
+      is_comment = true
+
+      -- If it's already a comment, check for existing tags
+      local comment_lines = multiline.get_full_comment(bufnr, lnum)
+
+      if comment_lines and #comment_lines > 0 then
+        -- Get configured tags
+        local cfg = config.get()
+        local available_tags = {}
+
+        for tag, def in pairs(cfg.tags.definitions or {}) do
+          table.insert(available_tags, tag)
+          if def.alt then
+            for _, alt in ipairs(def.alt) do
+              table.insert(available_tags, alt)
+            end
+          end
+        end
+
+        -- Look for existing tags
+        local tag_info = multiline.find_tag_in_comment(comment_lines, available_tags)
+
+        if tag_info then
+          -- Tag exists, process it directly
+          multiline.process_comment_at_cursor()
+          return
+        end
+
+        -- No tag found, continue to add one
+      end
+    end
+  end
+
+  -- Fallback to treesitter-based comment detection if multiline module didn't find anything
 
   -- Use treesitter to check if cursor is in a comment
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
@@ -800,6 +1245,18 @@ function M.add_tag_at_cursor()
   end
 end
 
+-- Add opt-out marker at cursor position
+function M.add_optout_at_cursor()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
+
+  -- Add the opt-out marker
+  M._add_optout_to_comment(bufnr, lnum)
+
+  -- Re-process the buffer so the comment won't be tracked
+  M.process_buffer(bufnr)
+end
+
 -- Remove a tag at cursor position
 function M.remove_tag_at_cursor()
   local bufnr = vim.api.nvim_get_current_buf()
@@ -844,6 +1301,82 @@ function M.remove_tag_at_cursor()
       utils.notify("No tag found at cursor position", vim.log.levels.WARN)
     end
   end
+end
+
+-- Handle formatter events to fix any tasks broken by formatting
+function M.handle_format_event(bufnr)
+  -- This should be called after a formatter runs
+  utils.debug_log("TRACKER", "Handling format event", bufnr)
+
+  -- Wait a short delay to ensure formatting is complete
+  vim.defer_fn(function()
+    -- We need to check all known UUIDs for this buffer
+    -- and make sure they're still properly formatted
+    local uuids_to_check = {}
+
+    -- Find UUIDs for this file
+    local file_path = vim.api.nvim_buf_get_name(bufnr)
+    for uuid, location in pairs(M.task_cache) do
+      if location.file == file_path then
+        table.insert(uuids_to_check, uuid)
+      end
+    end
+
+    if #uuids_to_check > 0 then
+      utils.debug_log("TRACKER", "Checking UUIDs after formatting", #uuids_to_check)
+
+      -- Search the entire buffer for these UUIDs
+      local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+      local fixed_count = 0
+
+      for uuid, _ in pairs(M.task_cache) do
+        local found = false
+        local needs_fix = false
+
+        for i, line in ipairs(lines) do
+          -- Check if line has a valid UUID marker
+          local exact_uuid = line:match(M.uuid_pattern)
+          if exact_uuid and exact_uuid == uuid then
+            found = true
+            -- UUID is properly formatted
+            break
+          end
+
+          -- Check if line has the UUID but in an incorrect format
+          if line:match(uuid) then
+            found = true
+            needs_fix = true
+
+            -- Fix the UUID format
+            local new_line
+            if line:match("%[task:") then
+              -- Format is wrong but bracket exists
+              new_line = line:gsub("%[task:[^%]]*%]", "[task:" .. uuid .. "]")
+            else
+              -- No bracket format, add it
+              new_line = M._add_uuid_to_line(line, uuid)
+            end
+
+            vim.api.nvim_buf_set_lines(bufnr, i - 1, i, false, { new_line })
+            fixed_count = fixed_count + 1
+            break
+          end
+        end
+
+        if found and not needs_fix then
+          utils.debug_log("TRACKER", "UUID already properly formatted", uuid)
+        elseif found and needs_fix then
+          utils.debug_log("TRACKER", "UUID format fixed", uuid)
+        else
+          utils.debug_log("TRACKER", "UUID not found after formatting", uuid)
+        end
+      end
+
+      if fixed_count > 0 then
+        utils.notify("Fixed " .. fixed_count .. " task references after formatting", vim.log.levels.INFO)
+      end
+    end
+  end, 100)
 end
 
 -- Manually link a comment to an existing task
@@ -935,6 +1468,22 @@ function M.handle_task_status_change(uuid, new_status)
     -- Update cache
     M.task_cache[uuid].status = new_status
   end
+end
+
+-- Set up autocommand for formatter integration
+function M.setup_formatter_hooks()
+  -- Try to hook into common formatters
+  vim.api.nvim_create_autocmd("User", {
+    pattern = { "FormatPre", "FormatPost", "ConformPost" },
+    callback = function(evt)
+      if evt.match == "FormatPre" then
+        -- Store pre-format state if needed
+      elseif evt.match == "FormatPost" or evt.match == "ConformPost" then
+        -- Fix any formatting issues
+        M.handle_format_event(vim.api.nvim_get_current_buf())
+      end
+    end,
+  })
 end
 
 return M
