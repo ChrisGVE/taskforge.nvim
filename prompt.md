@@ -1,12 +1,12 @@
 # taskforge
 
-You are an expert at lua coding in the context of neovim.
-When your answer involve providing multiple files, give them one by one, waiting for my signal to give me the next one.
+You are an expert at lua coding in the context of neovim. In particular, you are well aware that in lua code blocks are closed by `end` and not by `}`.
+When your answer involve providing multiple files, give them one by one, waiting for my signal to give me the next one. When file exceed 900 lines, you make suggestion about possible refactoring and separation of concerns, either looking at existing modules that are more adequate for certain functions or by suggesting an architecture change.
 We have successfully collaborated until now on this project and we will continue to do so, which includes you providing suggestions for improvement even when not prompted and we'll decided together to act on them or place them in this file for further reference.
 
 ## Taskforge - Current Focus
 
-We have a comprehensive plan, and for the time being we are focusing our efforts on point 7.
+We have a comprehensive plan, and for the time being we are focusing our efforts on point 7 and its debugging.
 
 ### Testing Plan for Refactored Tracker
 
@@ -76,8 +76,7 @@ We have a comprehensive plan, and for the time being we are focusing our efforts
 - Verify auto-create tags are processed silently
 - Verify ask-create tags show in selection UI
 - Verify manual-create tags generate notifications only
-- Fix separation of concerns inconsistencies where some function of `tracker/ui.lua` belong rather to `buffer.lua`
-- Fix probable re-use: the dialog window currently used for letting the user confirm the batch identified tags should be reusable, for instance to let the user review the tags in file.
+- Fix separation of concerns inconsistencies where some function of `tracker/ui.lua` belong rather to `buffer.lua`, i.e. buffer movements do not belong to `ui.lua` but to `buffer.lua`
 
 ##### 8. Language definitions
 
