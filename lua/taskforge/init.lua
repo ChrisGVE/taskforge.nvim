@@ -108,7 +108,7 @@ function M.setup(user_opts)
     -- Configure taskwarrior
     require("taskforge.tasks").configure()
 
-    -- Initialize tracker module
+    -- Initialize tracker module - NEW REFACTORED VERSION
     require("taskforge.tracker").setup()
 
     -- Set up commands

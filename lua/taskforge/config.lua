@@ -64,6 +64,8 @@ local M = {
       auto_refresh = true,
       -- require confirmation for ask and manual, if set to false ask will behave like auto and manual won't require a confirmation
       confirmation = true,
+      -- Automatically scan files for tags on buffer load
+      auto_scan = true,
       -- languages for which the plugin is active (only languages that are supported by treesitter)
       enabled_ft = {
         "*",
@@ -170,6 +172,21 @@ local M = {
 
   -- Task interface configuration
   interface = {
+    batch_ui = {
+      selected_glyph = "✓", -- Default: checkmark
+      unselected_glyph = "✗", -- Default: cross
+      width_percent = 80, -- Percent of window width
+      height_percent = 20, -- Percent of window height
+      max_width = 80, -- Maximum width in columns
+      max_height = 10, -- Maximum height in rows
+      min_width = 50, -- Minimum width in columns
+      min_height = 5, -- Minimum height in rows
+      position = "top", -- Position in window (top third)
+      selected_hl = "DiagnosticOk", -- Highlight for selected items
+      unselected_hl = "DiagnosticError", -- Highlight for unselected
+      use_devicons = true, -- Try to use nvim-web-devicons if available
+      highlight_line = true, -- Highlight source line when selecting tag
+    },
     keymaps = {
       open = "o", -- if the task is linked to a comment tag, opens the file (or change buffer if loaded) and jumps to the tag
       edit = "e", -- edit function via nvim

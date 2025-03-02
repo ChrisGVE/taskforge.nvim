@@ -4,26 +4,127 @@ You are an expert at lua coding in the context of neovim.
 When your answer involve providing multiple files, give them one by one, waiting for my signal to give me the next one.
 We have successfully collaborated until now on this project and we will continue to do so, which includes you providing suggestions for improvement even when not prompted and we'll decided together to act on them or place them in this file for further reference.
 
-Our current focus is the tagging detection and task creation in taskwarrior and the next steps are as follows:
+## Taskforge - Current Focus
 
-- the file `dashboard.lua` contains two "TODO" comments which are not tracked in taskwarrior. However, when the file is in focus the plugin correctly identifies the existence of them and offers to create tasks for them. Since the tasks will be identified via the UUID of taskwarrior, the plugin is however not adding the UUID to the comment, and thus does not recognize when they have been recorded into taskwarrior.
-- upon editing the file, whether those comments or anywhere else, the code is constantly asking whether they should be added. Which indicates that the detection must take place strictly for the relevant comments and not elsewhere. Also while editing a relevant content we need to manage the debounce more smartly, during insert, change, replace actions the debounce timer should be disabled and only be reset and enabled after the last edit, same with deletion, every time they occur the debounce timer should be reset.
-- when the user edits a tracked comment, the UUID that has been inserted should be "protected" ie if the user makes any change to it, the user should be warned that it could break the link with taskwarrior and be offered to reinstate the UUID (using undo, and only for changes to the link), however if the user brings the UUID to another comment line that should not be prevented.
-- the above reasoning brought up the fact that a tagged comment could be a multiline comment, and thus we should be able to handle these cases properly.
-- complementary to this is the fact that some formatter might make change to comments which might or might not be destructive to our tracking mechanism, this should be monitored as well and eventually corrected after a formatter complete the work on a file.
-- there is a need to establish a convention for tagged comments which the user opts out from tracking to avoid asking again whether the user wants to track them.
-- lastly when a file has never been handled by the plugin and contains multiple tagged comments, the plugin should:
-  - for tags that are configured as automated creating, those should be handled silently
-  - for tags that are configured as creation after ask or manual, those should be handled in one go with the user presented with a list that can be navigated and having the code moved to where the selected comment is placed. The user should have the ability to exclude them if desired. After that the plugin will create the respective tasks in the background and link the comments in the file.
-- Because of the size of `tracker.lua`, we opted to refactor it within `tracker/`. With the same concept we intended to create language specific files in `lang/` in order to modularlize the tool and make extension easier. Some of the plan is provided in the file `architecture.md` which is unfortunately not complete but should be a starting point.
+We have a comprehensive plan, and for the time being we are focusing our efforts on point 7.
 
-**Our immediate steps are:**
+### Testing Plan for Refactored Tracker
 
-- finalize the refactoring, and complete the `architecture` document.
-- ensure that the rest of the plugin integrates with the changes implied by the refactoring.
-- test whether changes are working
+#### Setup Testing
 
-There will be further work later such as using lsp signals for file changes. To prevent files from being closed before all plugin updates to the file are completed. And other things, but let's start with the above bullet points.
+1. Ensure the refactored modules are properly loaded during initialization
+   - Add debug logs at the start of each module's setup function
+   - Verify all modules are loaded in the correct order
+   - Check for any error messages or warnings
+
+#### Functional Testing
+
+##### 1. Dashboard.lua Tag Tracking
+
+- Open dashboard.lua file
+- Verify TODO comments are detected
+- Confirm UUID is added to comments after task creation
+- Test both single-line and multiline comments
+
+##### 2. Smart Debouncing
+
+- Open a file with existing tags
+- Make edits to the file including adding/modifying tags
+- Verify no prompts appear during active editing
+- Stop editing and wait for the debounce period
+- Confirm processing occurs only after debounce period
+
+##### 3. UUID Protection
+
+- Locate a comment with a UUID
+- Modify the UUID slightly (change one character)
+- Verify warning appears offering to restore the UUID
+- Test accepting and declining the restoration
+- Test moving a UUID to another comment
+- Verify it's allowed without warnings
+
+##### 4. Multiline Comment Support
+
+- Create multiline comments with tags in different languages
+- Test Lua-specific block comments (`--[[`, `]]`)
+- Test alternative Lua block comments (`--[=[`, `]=]`)
+- Verify UUID insertion works correctly for each format
+- Test tag detection in the middle of a block comment
+
+##### 5. Formatter Compatibility
+
+- Add tags to a file and create tasks
+- Run a formatter (e.g., conform.nvim or built-in LSP formatter)
+- Verify UUIDs remain intact or are correctly restored
+- Test with different formatter configurations
+
+##### 6. Opt-out Mechanism
+
+- Add `[notrack]` to some comments with tags
+- Verify these comments are not processed
+- Use `:TaskforgeTag optout` command on a comment
+- Verify `[notrack]` marker is added correctly
+- Confirm no further prompts for this comment
+
+##### 7. Batch Tag Processing
+
+- Create a new file with multiple untracked tags of different types:
+  - Some configured for auto-creation
+  - Some configured to ask
+  - Some configured for manual notification
+- Run `:TaskforgeTag process`
+- Verify auto-create tags are processed silently
+- Verify ask-create tags show in selection UI
+- Verify manual-create tags generate notifications only
+- Fix separation of concerns inconsistencies where some function of `tracker/ui.lua` belong rather to `buffer.lua`
+- Fix probable re-use: the dialog window currently used for letting the user confirm the batch identified tags should be reusable, for instance to let the user review the tags in file.
+
+##### 8. Language definitions
+
+- Fix inconsistencies of separation of concerns
+  - Ensure that language specific content in `lang/common.lua` are moved to language definition files
+  - Update `lang/template.lua` and `lang/lua.lua` accordingly
+- Create language files for
+  - clang (C/C++)
+  - html/css
+  - javascript/typescript
+  - ocaml
+  - perl
+  - python
+  - ruby
+  - rust
+  - sh/bash/zsh/fish/nushell
+  - vim
+  - xml/toml/yaml
+  - zig
+
+##### 9. Integration with Trouble
+
+- Trouble provides a list of tags within all files in a project and that interface should be hooked into (if Trouble is available) to support the management of tasks.
+
+#### Regression Testing
+
+- Test all existing Taskforge commands to ensure they still work
+- Verify integration with the dashboard still functions
+- Check task management interface functionality
+- Test task navigation and jumping to comment locations
+
+#### Edge Cases Testing
+
+1. **Files with many tags**: Create a file with 50+ tags and process
+2. **Long comments**: Test with very long comment lines
+3. **Unicode in comments**: Add non-ASCII characters to comments
+4. **Nested block comments**: Test with nested comment structures
+5. **Plugin conflicts**: Test with other comment-related plugins active
+6. **LSP diagnostics**: Check interaction with LSP diagnostics in comments
+7. **File operations**: Test renaming, moving, and deleting files with tags
+
+#### Performance Testing
+
+- Measure startup time with and without the refactored tracker
+- Test processing time for files with many comments
+- Check memory usage during batch processing
+- Verify debounce mechanism doesn't cause delays
 
 ## Starting point
 

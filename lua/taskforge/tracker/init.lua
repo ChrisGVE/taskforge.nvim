@@ -21,11 +21,23 @@ function M.setup()
   local core = require("taskforge.tracker.core")
   local buffer = require("taskforge.tracker.buffer")
   local formatter = require("taskforge.tracker.formatter")
+  local ui = require("taskforge.tracker.ui")
+  ui.setup_emergency_exit()
 
   -- Set up the submodules
   core.setup()
   buffer.setup()
   formatter.setup()
+
+  -- Set up event listeners and autocommands
+  M._setup_events()
+
+  -- Expose the manual scan command
+  vim.api.nvim_create_user_command("TaskforgeTagProcess", function()
+    M.process_all(true) -- true = force scan
+  end, {
+    desc = "Process all untracked tags in the current buffer",
+  })
 
   -- Register commands
   M._register_commands()
@@ -133,16 +145,21 @@ function M.process_buffer(bufnr, initial)
   return buffer.process(bufnr, initial)
 end
 
+function M.process_batch(bufnr, candidates)
+  local ui = require("taskforge.tracker.ui")
+  ui.batch_process_tags(bufnr, candidates)
+end
+
 -- Process all task tags in the current buffer
-function M.process_all()
+function M.process_all(force_scan)
   local bufnr = vim.api.nvim_get_current_buf()
 
   -- Reset processed state
   M.state.processed_buffers[bufnr] = nil
 
-  -- Process with initial flag
+  -- Process with force_scan flag
   local buffer = require("taskforge.tracker.buffer")
-  return buffer.process(bufnr, true)
+  return buffer.process(bufnr, true, force_scan) -- true = initial scan, force_scan for manual command
 end
 
 -- Add a tag at the current cursor position

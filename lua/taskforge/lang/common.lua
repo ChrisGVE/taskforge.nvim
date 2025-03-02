@@ -1,4 +1,5 @@
 -- lua/taskforge/lang/common.lua
+--
 -- Common language patterns and fallback functionality
 
 local M = {}
@@ -332,6 +333,81 @@ function M.is_comment_string(text, filetype)
   end
 
   return false
+end
+
+-- Add tag to comment text
+function M.add_tag_to_comment(comment_text, tag, filetype)
+  local patterns = M.get_patterns(filetype)
+
+  -- Try to match the comment prefix
+  local prefix_pattern = "^(%s*" .. vim.pesc(patterns.line_start) .. "%s*)"
+  local prefix = comment_text:match(prefix_pattern)
+
+  if prefix then
+    -- Extract the content after the prefix
+    local content = comment_text:sub(#prefix + 1)
+
+    if content and content:len() > 0 then
+      -- Add tag before existing content
+      return prefix .. tag .. ": " .. content
+    else
+      -- Just add tag after prefix
+      return prefix .. tag .. ": "
+    end
+  end
+
+  -- Handle block comments
+  if patterns.block_start then
+    local block_prefix_pattern = "^(%s*" .. vim.pesc(patterns.block_start) .. "%s*)"
+    prefix = comment_text:match(block_prefix_pattern)
+
+    if prefix then
+      local content = comment_text:sub(#prefix + 1)
+      if content and content:len() > 0 then
+        return prefix .. tag .. ": " .. content
+      else
+        return prefix .. tag .. ": "
+      end
+    end
+  end
+
+  -- Fallback: just append tag to the comment
+  return comment_text .. " " .. tag .. ": "
+end
+
+-- Add opt-out marker to comment
+function M.add_optout_marker(comment_text, filetype)
+  local patterns = M.get_patterns(filetype)
+
+  -- Insert [notrack] before block comment end if present
+  if patterns.block_end and comment_text:match(vim.pesc(patterns.block_end) .. "%s*$") then
+    return comment_text:gsub(vim.pesc(patterns.block_end) .. "%s*$", " [notrack] " .. patterns.block_end)
+  end
+
+  -- Otherwise just append
+  return comment_text .. " [notrack]"
+end
+
+-- Get comment prefix for a language
+function M.get_comment_prefix(filetype)
+  local patterns = M.get_patterns(filetype)
+  return patterns.line_start .. " "
+end
+
+-- Find all comment lines in a buffer (used when TreeSitter is not available)
+function M.find_comment_lines(bufnr)
+  local result = {}
+  local filetype = vim.bo[bufnr].filetype
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+
+  for i = 0, line_count - 1 do
+    local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1]
+    if line and M.is_comment_string(line, filetype) then
+      table.insert(result, { lnum = i, text = line })
+    end
+  end
+
+  return result
 end
 
 return M

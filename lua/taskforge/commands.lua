@@ -87,29 +87,13 @@ function M.register()
 
           return matches
         elseif subcmd == "tag" then
-          return { "add", "remove", "link" }
+          return { "add", "remove", "link", "optout", "process" }
         end
       end
 
       return {}
     end,
   })
-
-  -- Example keymaps (configurable)
-  local cfg = require("taskforge.config").get().interface
-  if cfg and cfg.keymaps then
-    local keymaps = cfg.keymaps
-
-    -- Task finder
-    if keymaps.open then
-      vim.keymap.set("n", keymaps.open, "<cmd>Taskforge pick<cr>", { desc = "Find tasks" })
-    end
-
-    -- Tag management
-    vim.keymap.set("n", "<leader>ta", "<cmd>Taskforge tag add<cr>", { desc = "Add tag at cursor" })
-    vim.keymap.set("n", "<leader>tr", "<cmd>Taskforge tag remove<cr>", { desc = "Remove tag at cursor" })
-    vim.keymap.set("n", "<leader>tl", "<cmd>Taskforge tag link<cr>", { desc = "Link tag to task" })
-  end
 end
 
 -- Command implementations
@@ -227,7 +211,7 @@ end
 
 function M.cmd_tag(args)
   if #args == 0 then
-    utils.notify("Usage: Taskforge tag <add|remove|link>", vim.log.levels.ERROR)
+    utils.notify("Usage: Taskforge tag <add|remove|link|optout|process>", vim.log.levels.ERROR)
     return
   end
 
@@ -240,6 +224,10 @@ function M.cmd_tag(args)
     tracker.remove_tag_at_cursor()
   elseif subcmd == "link" then
     tracker.link_tag_to_task()
+  elseif subcmd == "optout" then
+    tracker.add_optout_at_cursor()
+  elseif subcmd == "process" then
+    tracker.process_all(true) -- true = force batch mode
   else
     utils.notify("Unknown tag command: " .. subcmd, vim.log.levels.ERROR)
   end

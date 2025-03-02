@@ -9,7 +9,7 @@ function M.create_standalone_section()
 
   -- Create a simple title
   local title = {
-    icon = " ",
+    icon = "",
     title = "Tasks (Standalone)",
     pane = 2,
   }
@@ -19,9 +19,13 @@ function M.create_standalone_section()
     { "Project: taskforge", hl = "dir", width = 45, align = "center" },
     { "\n", hl = "dir" },
     { "⚑ TODO: Implement dashboard display", hl = "special" },
+    { "\n", hl = "dir" },
     { "⚑ FIX: Fix dashboard integration", hl = "special" },
+    { "\n", hl = "dir" },
     { "--+--", hl = "dir", width = 45, align = "center" },
+    { "\n", hl = "dir" },
     { "⚑ PERF: Optimize tag detection", hl = "normal" },
+    { "\n", hl = "dir" },
   }
 
   -- Create the section

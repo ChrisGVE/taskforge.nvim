@@ -18,7 +18,7 @@ end
 -- Process a buffer for task tags
 -- @param bufnr number Buffer number
 -- @param initial boolean Whether this is initial processing (first time seen)
-function M.process(bufnr, initial)
+function M.process(bufnr, initial_scan, force_scan)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Make sure buffer exists and is valid
@@ -41,23 +41,28 @@ function M.process(bufnr, initial)
   -- Clear previous tag markers
   M.clear_markers(bufnr)
 
-  -- If this is initial processing, find and handle all untracked tags
-  if initial then
+  -- Initialize tracking for this buffer if needed
+  core.initialize_buffer_tracking(bufnr)
+
+  -- Do an initial scan only if this is the first time seeing the buffer
+  -- or if force_scan is true (manual command)
+  if initial_scan or force_scan then
     -- Find all untracked tags in the buffer
     local untracked_tags = M.find_untracked_tags(bufnr)
 
     -- Process tags in batch if there are any
     if #untracked_tags > 0 then
-      -- Process all tags in one go
-      M.process_tag_candidates(bufnr, untracked_tags)
+      -- Always use batch processing - no flag check needed
+      local tracker = require("taskforge.tracker")
+      tracker.process_batch(bufnr, untracked_tags)
       return
     end
   end
 
-  -- Regular processing - track existing tags and their changes
+  -- Regular processing for tracked tags
   M.process_tracked_tags(bufnr)
 
-  -- Check for tag removals or modifications
+  -- Check for removed or modified tags
   M.check_removed_tags(bufnr)
 
   -- Mark buffer as processed
@@ -155,15 +160,31 @@ end
 function M.find_untracked_tags(bufnr)
   local untracked_tags = {}
   local cfg = config.get().tags
+
+  -- Get comment nodes - debug the result
   local comment_nodes = M.find_comment_nodes(bufnr)
+  utils.debug_log("BUFFER", "Found " .. #comment_nodes .. " comments in buffer")
+
+  -- Get buffer name for debugging
+  local bufname = vim.api.nvim_buf_get_name(bufnr)
+  utils.debug_log("BUFFER", "Processing buffer", bufname)
+
+  -- Add direct debug for TODO tags in buffer
+  local content = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
+  if content:match("TODO") then
+    utils.debug_log("BUFFER", "Buffer contains TODO, found with direct match")
+  end
 
   for _, node in ipairs(comment_nodes) do
     -- Extract node information
     local start_row, _, end_row, _ = node:range()
     local comment_text = vim.treesitter.get_node_text(node, bufnr)
 
+    utils.debug_log("BUFFER", "Comment at line " .. (start_row + 1), comment_text:sub(1, 50))
+
     -- Skip if already has UUID or opted out
     if comment_text:match(core.constants.uuid_pattern) or comment_text:match(core.constants.optout_pattern) then
+      utils.debug_log("BUFFER", "Comment already has UUID or opted out - skipping")
       goto continue
     end
 
@@ -178,11 +199,13 @@ function M.find_untracked_tags(bufnr)
       -- Look for any matching tag
       for _, tag_name in ipairs(tags_to_check) do
         if comment_text:match(tag_name) then
+          utils.debug_log("BUFFER", "Found tag " .. tag_name .. " in comment")
+
           -- Found a tag, add to candidates list
           table.insert(untracked_tags, {
             lnum = start_row,
             text = comment_text,
-            tag = tag,
+            tag = tag_name,
             def = def,
             node = node,
           })
@@ -194,53 +217,15 @@ function M.find_untracked_tags(bufnr)
     ::continue::
   end
 
+  utils.debug_log("BUFFER", "Found " .. #untracked_tags .. " untracked tags")
   return untracked_tags
 end
 
 -- Process tag candidates in batch
 function M.process_tag_candidates(bufnr, candidates)
-  -- Group candidates by creation mode
-  local auto_create = {}
-  local ask_create = {}
-  local manual_create = {}
-
-  for _, candidate in ipairs(candidates) do
-    if candidate.def.create == "auto" then
-      table.insert(auto_create, candidate)
-    elseif candidate.def.create == "ask" then
-      table.insert(ask_create, candidate)
-    elseif candidate.def.create == "manual" then
-      table.insert(manual_create, candidate)
-    end
-  end
-
-  -- Process auto-create tags silently
-  for _, candidate in ipairs(auto_create) do
-    M._process_auto_tag(bufnr, candidate)
-  end
-
-  -- Process manual-create tags with notification
-  for _, candidate in ipairs(manual_create) do
-    M._process_manual_tag(bufnr, candidate)
-  end
-
-  -- Process ask-create tags with UI
-  if #ask_create > 0 then
-    -- Let UI module handle this
-    local ui = require("taskforge.tracker.ui")
-    ui.batch_process_tags(bufnr, ask_create)
-  end
-
-  -- Provide summary if anything was processed
-  if #auto_create > 0 or #manual_create > 0 then
-    utils.notify(
-      string.format(
-        "Processed %d tags automatically, %d tags need confirmation",
-        #auto_create + #manual_create,
-        #ask_create
-      )
-    )
-  end
+  -- Use the UI module for batch processing
+  local ui = require("taskforge.tracker.ui")
+  ui.batch_process_tags(bufnr, candidates)
 end
 
 -- Process a tag for auto-creation

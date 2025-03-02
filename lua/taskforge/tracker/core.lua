@@ -5,6 +5,32 @@ local M = {}
 local config = require("taskforge.config")
 local utils = require("taskforge.utils")
 
+-- Add initialization function for buffer tracking
+function M.initialize_buffer_tracking(bufnr)
+  if not M.state.buf_cache[bufnr] then
+    M.state.buf_cache[bufnr] = {
+      tags = {},
+      changedtick = vim.api.nvim_buf_get_changedtick(bufnr),
+      processed = false,
+      batch_processed = false, -- Track if buffer had batch processing
+    }
+  end
+end
+
+-- Add function to mark a buffer as batch processed
+function M.set_buffer_batch_processed(bufnr)
+  if not M.state.buf_cache[bufnr] then
+    M.initialize_buffer_tracking(bufnr)
+  end
+
+  M.state.buf_cache[bufnr].batch_processed = true
+end
+
+-- Add function to check if buffer was batch processed
+function M.is_buffer_batch_processed(bufnr)
+  return M.state.buf_cache[bufnr] and M.state.buf_cache[bufnr].batch_processed
+end
+
 -- Core state
 M.state = {
   buf_cache = {}, -- Buffer-specific cache
