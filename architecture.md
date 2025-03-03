@@ -1,6 +1,6 @@
-# Modular Architecture for Taskforge Tag Tracking
+# Modular Architecture for Taskforge
 
-This document outlines the architecture for the refactored Taskforge tag tracking system. The goal is to improve maintainability, extensibility, and performance by breaking down the monolithic tracker into specialized modules.
+This document outlines the architecture for Taskforge, a Neovim plugin for task management integrated with Taskwarrior. The design focuses on modularity, maintainability, and extensibility.
 
 ## Folder Structure
 
@@ -12,6 +12,9 @@ lua/taskforge/
 ├── tasks.lua               # Task CRUD operations with taskwarrior
 ├── project.lua             # Project detection and management
 ├── utils.lua               # Shared utility functions
+├── dashboard.lua           # Dashboard integration (for snacks.dashboard)
+├── picker.lua              # Unified picker interface for tasks
+├── interface.lua           # Task management interface
 ├── tracker/                # Tag tracking functionality
 │   ├── init.lua            # Entry point for tracker (exports and setup)
 │   ├── core.lua            # Core tracking functionality and state
@@ -19,8 +22,19 @@ lua/taskforge/
 │   ├── tags.lua            # Tag detection and processing
 │   ├── uuid.lua            # UUID management and protection
 │   ├── multiline.lua       # Multiline comment handling
-│   ├── formatter.lua       # Formatter compatibility
-│   └── ui.lua              # UI components for tag interaction
+│   └── formatter.lua       # Formatter compatibility
+├── ui/                     # UI components and utilities (planned)
+│   ├── init.lua            # Main UI exports and setup
+│   ├── utils.lua           # Position, size and other utilities
+│   ├── dialog.lua          # Generic dialog component
+│   ├── help.lua            # Help dialog component
+│   ├── batch.lua           # Batch processing dialog
+│   ├── icons.lua           # Icon management and loading
+│   ├── theme.lua           # Colors and styling
+│   └── components/         # For future specialized components
+│       ├── list.lua        # Reusable list component
+│       ├── tabs.lua        # Tab component for complex views
+│       └── form.lua        # Form inputs for task creation/editing
 └── lang/                   # Language-specific handling
     ├── init.lua            # Language module loader
     ├── common.lua          # Shared language patterns and functionality
@@ -31,164 +45,266 @@ lua/taskforge/
     └── ...                 # Other language modules
 ```
 
-## Module Responsibilities
+## Core Modules
+
+### init.lua
+
+- Plugin entry point and setup
+- Dependency checking and initialization
+- Public API for other plugins
+
+### config.lua
+
+- Configuration management with defaults
+- User settings validation
+- Configuration utilities
+
+### commands.lua
+
+- Registration of all user commands
+- Command dispatch logic
+- Command completion helpers
+
+### tasks.lua
+
+- Taskwarrior integration
+- CRUD operations for tasks
+- Task caching and management
+
+### project.lua
+
+- Project detection using multiple methods (LSP, VCS, patterns)
+- Project name formatting and management
+- File-to-project mapping
+
+### utils.lua
+
+- Shared utility functions
+- Logging and notification helpers
+- File and text manipulation utilities
+
+### dashboard.lua
+
+- Integration with snacks.dashboard
+- Task display and formatting for dashboard
+- Dashboard section management
+
+### picker.lua
+
+- Unified interface for task selection
+- Support for multiple backends (snacks.picker, telescope, fzf)
+- Task formatting for pickers
+
+### interface.lua
+
+- Task management interface
+- Task tree visualization using nui.nvim
+- Task details and operations
+
+## Tracker Module
+
+The tracker module manages code comment tags and their association with Taskwarrior tasks.
 
 ### tracker/init.lua
 
-- Serves as the public API for the tracker system
-- Initializes all tracker submodules
-- Sets up autocommands for buffer events
-- Provides a clean interface for other parts of the plugin
-- Maintains global state for the tracker system
-- Manages the edit state and debounce mechanism
-
-```lua
--- Example public API
-local M = {
-  process_buffer = function(bufnr) ... end,
-  add_tag_at_cursor = function() ... end,
-  remove_tag_at_cursor = function() ... end,
-  ...
-}
-```
+- Public API for the tracker system
+- Module initialization and event setup
+- Command registration for tag operations
 
 ### tracker/core.lua
 
-- Maintains the core state and cache for tracking
-- Provides a centralized data store for tracker information
-- Implements the debounce mechanism for handling edits
-- Loads and updates task information from taskwarrior
-- Manages buffer processing state
-- Handles basic UUID operations
-- Provides utilities for tag data manipulation
+- Centralized state management
+- Debounce mechanism for edits
+- Task-to-location mapping
+- Common utilities for tag handling
 
 ### tracker/buffer.lua
 
-- Processes buffers to detect and handle tag comments
-- Uses TreeSitter for precise comment detection
-- Creates, modifies, and removes comment markers
-- Handles buffer change events
-- Coordinates with other modules for tag processing
-- Performs batch processing of multiple tags
-- Manages highlighting and visual indicators for tags
+- Buffer processing for tag detection
+- TreeSitter integration for comment finding
+- Tag highlighting and annotation
+- Tag processing based on configuration
 
 ### tracker/tags.lua
 
-- Implements tag detection and handling logic
-- Processes tags based on their configuration
-- Creates tasks based on tag information
-- Handles tag removal and task completion
-- Manages tag-specific attributes
-- Processes tracked tags vs. untracked tags
-- Handles task linking/unlinking for comments
+- Tag processing logic
+- Task creation, update, and deletion
+- Tag-specific behavior definition
+- Tag-to-task relationship management
 
 ### tracker/uuid.lua
 
-- Manages UUID tracking and linking
-- Handles UUID protection and verification
-- Restores modified UUIDs when necessary
-- Adds/removes UUIDs from comments
-- Detects UUID changes in comments
-- Provides utilities for UUID format handling
-- Manages the linking between comments and tasks
+- UUID management for tag-task links
+- UUID format protection and repair
+- UUID storage and retrieval
 
 ### tracker/multiline.lua
 
-- Handles multiline comment detection and processing
-- Extracts tag information from multiline comments
-- Adds UUIDs to multiline comments properly
-- Processes comment blocks with language-specific syntax
-- Manages comment context detection
-- Provides utilities for working with multi-line code structures
-- Coordinates with language modules for syntax accuracy
+- Multiline comment detection and processing
+- Block comment handling
+- Language-specific multiline tags
 
 ### tracker/formatter.lua
 
-- Handles compatibility with code formatters
-- Detects formatting operations
-- Preserves UUIDs during formatting
-- Repairs damaged UUIDs after formatting
-- Hooks into popular formatter events
-- Manages pre/post format state
-- Provides integration with LSP formatting
+- Integration with code formatters
+- UUID preservation during formatting
+- Post-formatting repair mechanisms
 
-### tracker/ui.lua
+## UI Module (Planned)
 
-- Implements UI components for tag interaction
-- Provides batch processing UI for multiple tags
-- Manages selection and confirmation dialogs
-- Handles tag navigation within buffers
-- Shows tag information and details
-- Integrates with nui.nvim for richer UI elements
-- Provides popup notifications and confirmations
+The UI module will provide reusable components for all user interfaces in Taskforge.
+
+### ui/init.lua
+
+- UI module initialization
+- Registration of UI components
+- Event setup for UI interactions
+
+### ui/utils.lua
+
+- Size and position calculations
+- Common UI helper functions
+- Window and buffer utilities
+
+### ui/dialog.lua
+
+- Generic dialog foundation
+- Common dialog behaviors
+- Standard dialog lifecycle and events
+
+### ui/help.lua
+
+- Help dialog implementation
+- Customizable help content
+- Help UI styling and keymaps
+
+### ui/batch.lua
+
+- Batch processing dialog for tags
+- Tag selection and management UI
+- Source highlighting and navigation
+
+### ui/icons.lua
+
+- Icon loading and management
+- Support for multiple icon sources
+- Icon rendering utilities
+
+### ui/theme.lua
+
+- Colors and styling system
+- Highlight group management
+- Theme integration with Neovim
+
+### ui/components/\*
+
+- Specialized UI components
+- Reusable elements (lists, forms, tabs)
+- Building blocks for complex interfaces
+
+## Language Module
+
+The language module provides language-specific functionality for comment detection and tag handling.
 
 ### lang/init.lua
 
-- Serves as the loader for language-specific modules
-- Detects the appropriate language module for a buffer
-- Provides fallback to common module when needed
-- Caches language modules for performance
-- Interfaces with LSP for enhanced language detection
-- Manages language module selection based on filetype
-- Provides common utilities for all language modules
+- Language module loader and dispatcher
+- Filetype detection and mapping
+- Language support determination
 
 ### lang/common.lua
 
-- Implements shared language patterns and behavior
-- Provides fallback functionality for unsupported languages
-- Defines common comment detection mechanisms
-- Implements generic tag extraction patterns
-- Handles basic UUID insertion in comments
-- Provides utilities for working with comments across languages
-- Defines interface that all language modules implement
+- Shared language patterns and utilities
+- Fallback implementations for unsupported languages
+- Common comment handling logic
 
 ### lang/template.lua
 
-- Serves as a template for new language modules
-- Demonstrates required functions and patterns
-- Shows examples of language-specific customization
-- Documents the language module interface
-- Provides a starting point for language contributors
-- Includes well-documented examples
+- Template for language-specific modules
+- Documentation of required functions
+- Example implementations
 
-### lang/lua.lua (and other language modules)
+### lang/\* (language-specific modules)
 
-- Implements language-specific patterns and behavior
-- Provides accurate comment detection for the language
-- Implements proper UUID insertion for language syntax
-- Handles language-specific comment patterns
-- Manages block comments for the language
-- Provides optimized tag extraction for the language
-- Handles language-specific edge cases
+- Language-specific comment detection
+- Custom tag parsing rules
+- Specialized UUID placement logic
 
-## Integration Strategy
+## Architecture Principles
 
-1. Replace the current `tracker.lua` implementation with the new modular system
-2. Ensure backward compatibility for existing API calls
-3. Gradually improve each module based on testing and user feedback
-4. Add language modules prioritizing the most commonly used languages
+1. **Separation of Concerns**: Each module has a clear, focused responsibility
+2. **Composition Over Inheritance**: Modules work together through well-defined interfaces
+3. **Progressive Enhancement**: Core functionality works without optional dependencies
+4. **Configuration Over Convention**: Behavior is configurable while providing sensible defaults
+5. **Error Resilience**: Graceful handling of errors and edge cases
+
+## Event Flow
+
+### Tag Tracking
+
+1. When a buffer is opened:
+
+   - `BufEnter` event triggers `tracker.init`
+   - Tracker initializes buffer tracking through `buffer.lua`
+   - Buffer is processed for existing tags
+
+2. During editing:
+
+   - Edit events trigger debounce through `core.lua`
+   - After debounce period, buffer is re-processed
+   - New tags are detected and processed based on configuration
+
+3. When a tag is detected:
+
+   - Configuration determines behavior (auto/ask/manual)
+   - For "auto" tags, tasks are created automatically
+   - For "ask" tags, UI prompts for confirmation
+   - For "manual" tags, a notification is displayed
+
+4. When a task status changes:
+   - Changes propagate through tag tracking system
+   - Tags in code are updated or removed as configured
+   - Visual indicators reflect current status
+
+### UI Components Flow
+
+1. Dialog Creation:
+
+   - Generic dialog base provides common functionality
+   - Specialized dialogs extend with specific behavior
+   - Dialog state is managed within the component
+
+2. User Interaction:
+
+   - Events are processed through standard handlers
+   - Actions trigger callbacks to business logic
+   - State updates cause UI refreshes
+
+3. Dialog Completion:
+   - Results are passed to provided callbacks
+   - Resources are properly cleaned up
+   - Focus is returned to appropriate context
+
+## Implementation Priorities
+
+1. ✅ Core functionality (tasks, project, commands)
+2. ✅ Tag tracking system (detection, task creation, tracking)
+3. ✅ Formatter compatibility and UUID protection
+4. 🔄 UI component refactoring and improvements
+5. 🔄 Language-specific modules for better comment support
+6. 📋 Full task management interface and dashboard integration
+7. 📋 Documentation and testing
 
 ## Future Enhancements
 
-1. Add LSP integration for improved language detection
-2. Implement file operation tracking using LSP
-3. Add more language-specific modules
-4. Enhance formatter compatibility with additional formatters
-5. Improve multiline comment handling for complex syntaxes
+1. LSP integration for improved language detection
+2. File operation tracking using LSP
+3. Additional language-specific modules
+4. Enhanced formatter compatibility with additional formatters
+5. Improved multiline comment handling for complex syntaxes
+6. Advanced project management features
+7. Richer task visualization and reporting
 
-## Tracker Event Flow
+---
 
-1. Buffer is opened → `BufEnter` event
-2. `tracker/init.lua` catches event and calls `buffer.process()`
-3. `buffer.lua` uses TreeSitter to detect comments
-4. For each comment, relevant modules process tags:
-   - New tags → `tags.lua` processes them based on configuration
-   - Existing UUIDs → `uuid.lua` verifies and updates if needed
-   - Multiline comments → `multiline.lua` handles specially
-5. Buffer is edited → text change events trigger debounce timer
-6. After debounce period, buffer is processed again
-7. Code is formatted → `formatter.lua` handles UUID preservation
-8. Tag is modified → `uuid.lua` offers to restore if needed
-9. Task is completed → `tags.lua` updates the comment accordingly
-
-This architecture provides a scalable and maintainable foundation for the tag tracking system while ensuring all the requirements are met efficiently.
+This architecture document will be updated as the project evolves to reflect current design decisions and future plans.

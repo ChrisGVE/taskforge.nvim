@@ -1,6 +1,6 @@
 -- lua/taskforge/tracker/ui.lua
 --
--- UI components for tag interaction including batch processing
+-- UI components for tag interaction including reusable batch processing dialog
 
 local M = {}
 local utils = require("taskforge.utils")
@@ -8,14 +8,20 @@ local core = require("taskforge.tracker.core")
 local config = require("taskforge.config")
 
 -- Namespace for batch tag processing
+-- This is a state store specific to this module
 local batch = {
   active = false,
-  candidates = {},
+  data_items = {},
   selected_index = 1,
   visible = false,
-  bufnr = nil,
+  source_bufnr = nil,
   highlight_namespace = nil,
   namespace = nil,
+  mode = "tag_select", -- Mode: "tag_select", "tag_review", "task_list"
+  columns = {}, -- Column specifications
+  actions = {}, -- Action callbacks
+  formatter = nil, -- Custom formatter function
+  on_complete = nil, -- Callback when completed
 }
 
 -- Cached UI components
@@ -72,16 +78,16 @@ local function get_icons()
 end
 
 -- Calculate UI size based on configuration and window
-local function calculate_ui_size()
+local function calculate_ui_size(mode)
   local cfg = config.get().interface and config.get().interface.batch_ui or {}
 
   -- Get current window dimensions
   local win_width = vim.api.nvim_win_get_width(0)
   local win_height = vim.api.nvim_win_get_height(0)
 
-  -- Calculate dimensions based on percentages
-  local width_percent = cfg.width_percent or 80
-  local height_percent = cfg.height_percent or 20
+  -- Calculate dimensions based on percentages with mode-specific adjustments
+  local width_percent = cfg.width_percent or (mode == "task_list" and 90 or 80)
+  local height_percent = cfg.height_percent or (mode == "task_list" and 50 or 20)
 
   -- Calculate dimensions with constraints
   local width = math.floor(win_width * width_percent / 100)
@@ -131,99 +137,78 @@ local function calculate_ui_size()
   }
 end
 
--- Extract tag description for display
-local function get_tag_description(bufnr, candidate)
-  local lang = require("taskforge.lang").get_for_buffer(bufnr)
-  local comment_text = vim.treesitter.get_node_text(candidate.node, bufnr)
-  local info = lang.extract_tag_info(comment_text, candidate.tag)
+-- Process batch tag candidates
+-- This is the entry point for the UI processing
+function M.batch_process_tags(bufnr, candidates)
+  utils.notify("Processing " .. #candidates .. " tag candidates", vim.log.levels.INFO)
 
-  return info and info.description or "No description"
-end
+  -- Group and process candidates by type
+  local buffer = require("taskforge.tracker.buffer")
+  local result = buffer.process_candidates_by_type(bufnr, candidates)
 
--- Jump to line containing a tag
-function M.jump_to_tag(bufnr, lnum)
-  -- Get current window
-  local win = vim.api.nvim_get_current_win()
+  -- If we processed some tags automatically, show a notification
+  local auto_msg = ""
+  if result.auto_processed > 0 then
+    auto_msg = string.format("%d tags processed automatically. ", result.auto_processed)
+  end
 
-  -- Only jump in main buffer if UI is active
-  if batch.active and vim.api.nvim_buf_is_valid(bufnr) then
-    -- Find a window containing our target buffer
-    local target_win = nil
-    for _, w in ipairs(vim.api.nvim_list_wins()) do
-      if vim.api.nvim_win_get_buf(w) == bufnr then
-        target_win = w
-        break
-      end
-    end
-
-    if target_win then
-      -- Set cursor to tag line - don't change windows
-      local topline = vim.fn.line("w0", target_win)
-      local botline = vim.fn.line("w$", target_win)
-
-      -- Check if line is out of view
-      if lnum + 1 < topline or lnum + 1 > botline then
-        -- Need to adjust view
-        vim.api.nvim_win_set_cursor(target_win, { lnum + 1, 0 })
-
-        -- Center the view
-        vim.api.nvim_command(
-          "call winrestview({'lnum': " .. (lnum + 1) .. ", 'topline': " .. math.max(1, lnum - 5) .. "})"
-        )
-        vim.api.nvim_command("normal! zz")
-      end
-
-      -- Highlight the line even if not changing windows
-      if not batch.highlight_namespace then
-        batch.highlight_namespace = vim.api.nvim_create_namespace("taskforge_tag_highlight")
-      end
-      vim.api.nvim_buf_clear_namespace(bufnr, batch.highlight_namespace, 0, -1)
-      vim.api.nvim_buf_add_highlight(bufnr, batch.highlight_namespace, "Visual", lnum, 0, -1)
-
-      -- Return focus to UI
-      local ui_winid = nil
-      if ui_components.popup and ui_components.popup.winid then
-        ui_winid = ui_components.popup.winid
-        if vim.api.nvim_win_is_valid(ui_winid) then
-          vim.api.nvim_set_current_win(ui_winid)
+  -- If there are interactive tags to handle, show the UI
+  if #result.interactive > 0 then
+    utils.notify(
+      auto_msg .. string.format("Found %d tags requiring user decision", #result.interactive),
+      vim.log.levels.INFO
+    )
+    M.show_batch_dialog({
+      source_bufnr = bufnr,
+      data_items = result.interactive,
+      mode = "tag_select",
+      title = "Select Tags to Create",
+      columns = { "select", "tag", "description", "line" },
+      item_formatter = function(item, idx)
+        return {
+          select = item.selected,
+          tag = item.tag,
+          description = item.description,
+          line = "line " .. (item.lnum + 1),
+          _data = item, -- Store full item data for callbacks
+        }
+      end,
+      key_select = function(item)
+        item.selected = not item.selected
+        return true -- Return true to refresh display
+      end,
+      on_complete = function(items, cancelled)
+        if not cancelled then
+          M.apply_tag_selections(bufnr, items)
         end
-      end
-    end
+      end,
+    })
+  elseif result.auto_processed > 0 or result.manual_processed > 0 then
+    utils.notify(auto_msg .. string.format("%d tags notified for manual handling", result.manual_processed))
+  else
+    utils.notify("No tags found to process")
   end
 end
 
--- Process a tag candidate with auto-create config
-local function process_auto_tag(bufnr, candidate)
-  local tags = require("taskforge.tracker.tags")
-  tags.process_tag(bufnr, candidate.lnum, candidate.tag, candidate.def, candidate.node, false) -- false = allow task creation
-end
-
--- Process all selected tags from batch interface
-function M.apply_selections()
-  if not batch.active then
-    return
-  end
-
+-- Apply tag selections after batch processing
+function M.apply_tag_selections(bufnr, items)
   -- Process selected tags
   local processed = 0
   local optout = 0
+  local buffer = require("taskforge.tracker.buffer")
+  local tags = require("taskforge.tracker.tags")
 
-  for _, item in ipairs(batch.candidates) do
+  for _, item in ipairs(items) do
     if item.selected then
       -- Create task
-      local tags = require("taskforge.tracker.tags")
-      tags.process_tag(batch.bufnr, item.lnum, item.tag, item.def, item.node, false)
+      buffer.process_auto_tag(bufnr, item._data)
       processed = processed + 1
     else
       -- Add opt-out marker
-      local tags = require("taskforge.tracker.tags")
-      tags.add_optout_marker(batch.bufnr, item.lnum)
+      tags.add_optout_marker(bufnr, item._data.lnum)
       optout = optout + 1
     end
   end
-
-  -- Close UI
-  M.close_batch_ui()
 
   -- Notify results
   if processed > 0 or optout > 0 then
@@ -233,7 +218,7 @@ function M.apply_selections()
 end
 
 -- Create help popup
-function M.show_help_popup()
+function M.show_help_popup(help_config)
   local has_nui, Popup = pcall(require, "nui.popup")
   if not has_nui then
     utils.notify("Help requires nui.nvim", vim.log.levels.WARN)
@@ -253,9 +238,9 @@ function M.show_help_popup()
     end
   end
 
-  -- Create help content with dynamic keys
+  -- Default content
   local help_text = {
-    "Taskforge Tag Processing Help",
+    "Taskforge Dialog Help",
     "==========================",
     "",
     "Navigation:",
@@ -263,14 +248,19 @@ function M.show_help_popup()
     "  " .. format_keymap(keymaps.down or { "j", "<Down>" }) .. "  : Move down",
     "",
     "Actions:",
-    "  " .. format_keymap(keymaps.select_task or "v") .. "  : Toggle selected tag",
-    "  " .. format_keymap(keymaps.select_all_task or "V") .. "  : Toggle all tags to match current",
+    "  " .. format_keymap(keymaps.select_task or "v") .. "  : Toggle selected item",
+    "  " .. format_keymap(keymaps.select_all_task or "V") .. "  : Toggle all items to match current",
     "  " .. format_keymap(keymaps.quit or "q") .. "  : Apply selections and exit",
     "  " .. format_keymap(keymaps.unselect or "<esc>") .. "  : Cancel and exit",
     "  " .. format_keymap(keymaps.help or "?") .. "  : Show this help",
     "",
     "Press any key to close",
   }
+
+  -- Override with custom help if provided
+  if help_config and help_config.help_text then
+    help_text = help_config.help_text
+  end
 
   -- Create popup
   local popup = Popup({
@@ -341,70 +331,42 @@ function M.show_help_popup()
   return popup
 end
 
--- Process tag candidates in batch
-function M.batch_process_tags(bufnr, candidates)
-  -- Debug log the candidates
-  utils.notify("Processing " .. #candidates .. " tag candidates", vim.log.levels.INFO)
-
-  -- Group candidates by creation mode
-  local auto_create = {}
-  local interactive_tags = {}
-
-  for _, candidate in ipairs(candidates) do
-    -- Debug the candidate
-    utils.debug_log("UI", "Candidate tag", {
-      tag = candidate.tag,
-      lnum = candidate.lnum,
-      create = candidate.def and candidate.def.create or "unknown",
-    })
-
-    if candidate.def and candidate.def.create == "auto" then
-      table.insert(auto_create, candidate)
-    else
-      -- Get description
-      local desc = get_tag_description(bufnr, candidate)
-      utils.debug_log("UI", "Tag description", desc)
-
-      -- Create interactive tag entry
-      table.insert(interactive_tags, {
-        lnum = candidate.lnum,
-        tag = candidate.tag,
-        def = candidate.def,
-        node = candidate.node,
-        description = desc,
-        selected = candidate.def and candidate.def.create == "ask", -- Pre-select "ask" tags
-      })
-    end
-  end
-
-  -- Process auto-create tags silently
-  for _, candidate in ipairs(auto_create) do
-    process_auto_tag(bufnr, candidate)
-  end
-
-  -- Show UI for interactive tags if any exist
-  if #interactive_tags > 0 then
-    utils.notify("Found " .. #interactive_tags .. " tags requiring user decision", vim.log.levels.INFO)
-    batch.candidates = interactive_tags
-    batch.bufnr = bufnr
-    M.show_batch_ui(bufnr)
-  elseif #auto_create > 0 then
-    utils.notify(string.format("Processed %d tags automatically", #auto_create))
-  else
-    utils.notify("No tags found to process")
-  end
-end
-
--- Show batch UI for tag processing
-function M.show_batch_ui(bufnr)
+-- Show batch UI in a more generalized way
+-- @param options table Dialog configuration options
+--   - source_bufnr: Source buffer number
+--   - data_items: Array of data items
+--   - mode: Dialog mode ("tag_select", "tag_review", "task_list")
+--   - title: Dialog title
+--   - columns: Array of column names to display
+--   - item_formatter: Function to format items (item, idx) -> table of column values
+--   - key_select: Function to handle toggle select (item) -> boolean refresh?
+--   - on_complete: Function called when dialog is complete (items, cancelled)
+function M.show_batch_dialog(options)
   -- Ensure we have NUI
   local has_nui, NuiPopup = pcall(require, "nui.popup")
   if not has_nui then
     utils.notify("Batch UI requires nui.nvim", vim.log.levels.WARN)
     -- Fall back to simple selection
-    M.show_simple_selection(bufnr, batch.candidates)
+    M.show_simple_selection(options)
     return
   end
+
+  -- Set up internal batch state
+  batch.active = true
+  batch.data_items = options.data_items or {}
+  batch.source_bufnr = options.source_bufnr
+  batch.mode = options.mode or "tag_select"
+  batch.columns = options.columns or { "select", "tag", "description", "line" }
+  batch.formatter = options.item_formatter
+  batch.on_complete = options.on_complete
+  batch.actions = {
+    key_select = options.key_select,
+    key_select_all = options.key_select_all,
+    key_action = options.key_action,
+    key_edit = options.key_edit,
+    key_done = options.key_done,
+    key_delete = options.key_delete,
+  }
 
   -- Get configuration
   local cfg = config.get().interface or {}
@@ -426,22 +388,34 @@ function M.show_batch_ui(bufnr)
   local key_quit = keymaps.quit or "q"
   local key_cancel = keymaps.unselect or "<Esc>"
   local key_help = keymaps.help or "?"
+  local key_action = keymaps.action or "a"
+
+  -- Additional keys for task review/management
+  local key_edit = keymaps.edit or "e"
+  local key_done = keymaps.close_task or "d"
+  local key_delete = keymaps.delete_task or "-"
 
   -- Format keys for display (handle special keys)
   local display_quit = key_quit:gsub("<", "\\<")
   local display_cancel = key_cancel:gsub("<Esc>", "Esc"):gsub("<", "\\<")
   local display_help = key_help:gsub("<", "\\<")
 
-  -- Calculate size and position for top third
-  local win_width = vim.api.nvim_win_get_width(0)
-  local win_height = vim.api.nvim_win_get_height(0)
+  -- Calculate size based on mode
+  local size = calculate_ui_size(batch.mode)
 
-  local width = math.min(70, win_width - 10)
-  local height = math.min(10, #batch.candidates + 4)
+  -- Prepare footer text based on mode
+  local footer_text = string.format(" %s: Apply | %s: Cancel | %s: Help ", display_quit, display_cancel, display_help)
 
-  -- Position in top third
-  local row = math.floor(win_height * 0.15)
-  local col = math.floor((win_width - width) / 2)
+  if batch.mode == "task_list" or batch.mode == "tag_review" then
+    footer_text = string.format(
+      " %s: Apply | %s: Edit | %s: Done | %s: Delete | %s: Help ",
+      display_quit,
+      keymaps.edit or "e",
+      keymaps.close_task or "d",
+      keymaps.delete_task or "-",
+      display_help
+    )
+  end
 
   -- Create popup with dynamic key display
   local popup = NuiPopup({
@@ -450,19 +424,19 @@ function M.show_batch_ui(bufnr)
     border = {
       style = "rounded",
       text = {
-        top = " Task Tags ",
+        top = " " .. (options.title or "Taskforge") .. " ",
         top_align = "center",
-        bottom = string.format(" %s: Apply | %s: Cancel | %s: Help ", display_quit, display_cancel, display_help),
+        bottom = footer_text,
         bottom_align = "center",
       },
     },
     position = {
-      row = row,
-      col = col,
+      row = size.row,
+      col = size.col,
     },
     size = {
-      width = width,
-      height = height,
+      width = size.width,
+      height = size.height,
     },
     win_options = {
       cursorline = true, -- Highlight current line
@@ -479,48 +453,8 @@ function M.show_batch_ui(bufnr)
   -- Create namespace for highlights that need to persist
   batch.namespace = vim.api.nvim_create_namespace("taskforge_ui_highlights")
 
-  -- Set content with simple approach
-  local content = {}
-  table.insert(content, "Select which tags to create tasks for:")
-  table.insert(content, "")
-
-  for i, item in ipairs(batch.candidates) do
-    local marker = "[ ] "
-    if item.selected then
-      marker = "[x] "
-    end
-
-    table.insert(
-      content,
-      string.format(
-        "%s%s: %s (line %d)",
-        marker,
-        item.tag,
-        item.description:sub(1, 40) .. (string.len(item.description) > 40 and "..." or ""),
-        item.lnum + 1
-      )
-    )
-  end
-
-  -- Set lines directly
-  vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, content)
-
-  -- Add highlighting
-  vim.api.nvim_buf_add_highlight(popup.bufnr, -1, "Title", 0, 0, -1)
-
-  for i = 3, #content do
-    local line_idx = i - 1
-    -- Highlight checkboxes
-    if content[i]:sub(1, 3) == "[x]" then
-      vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "DiagnosticOk", line_idx, 0, 3)
-    else
-      vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "DiagnosticError", line_idx, 0, 3)
-    end
-
-    -- Highlight tag
-    local tag_end = content[i]:find(":", 4) or 10
-    vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "Type", line_idx, 4, tag_end)
-  end
+  -- Render content
+  M.render_batch_dialog()
 
   -- Force cursor to first item row and focus window
   vim.defer_fn(function()
@@ -528,9 +462,9 @@ function M.show_batch_ui(bufnr)
       vim.api.nvim_set_current_win(popup.winid)
       vim.api.nvim_win_set_cursor(popup.winid, { 3, 0 })
 
-      -- Jump to first tag in source
-      if #batch.candidates > 0 then
-        M.jump_to_tag(bufnr, batch.candidates[1].lnum)
+      -- Jump to first item in source
+      if #batch.data_items > 0 and batch.source_bufnr then
+        M.highlight_item_source(0)
       end
     end
   end, 10)
@@ -550,12 +484,7 @@ function M.show_batch_ui(bufnr)
       -- Don't go above the first item
       if row > 3 then
         vim.api.nvim_win_set_cursor(popup.winid, { row - 1, 0 })
-
-        -- Jump to tag in source
-        local item_idx = row - 3 -- after moving up
-        if item_idx >= 1 and item_idx <= #batch.candidates then
-          M.jump_to_tag(bufnr, batch.candidates[item_idx].lnum)
-        end
+        M.highlight_item_source(row - 3 - 1) -- after moving up
       end
     end, opts)
   end
@@ -566,14 +495,10 @@ function M.show_batch_ui(bufnr)
       local cursor = vim.api.nvim_win_get_cursor(popup.winid)
       local row = cursor[1]
       -- Don't go past the last item or above first item
-      if row < #content then
+      local content_len = #batch.data_items + 2 -- +2 for header rows
+      if row < content_len + 1 then
         vim.api.nvim_win_set_cursor(popup.winid, { row + 1, 0 })
-
-        -- Jump to tag in source
-        local item_idx = row - 3 + 2 -- after moving down
-        if item_idx >= 1 and item_idx <= #batch.candidates then
-          M.jump_to_tag(bufnr, batch.candidates[item_idx].lnum)
-        end
+        M.highlight_item_source(row - 3 + 1) -- after moving down
       end
     end, opts)
   end
@@ -584,31 +509,23 @@ function M.show_batch_ui(bufnr)
     local row = cursor[1]
 
     -- Only toggle item rows, not headers
-    if row >= 3 and row - 3 < #batch.candidates then
-      local item_idx = row - 3 + 1
+    if row >= 3 and row - 3 < #batch.data_items then
+      local item_idx = row - 3
+      local item = batch.data_items[item_idx + 1]
 
-      -- Toggle selection
-      batch.candidates[item_idx].selected = not batch.candidates[item_idx].selected
-
-      -- Update display
-      local line = vim.api.nvim_buf_get_lines(popup.bufnr, row - 1, row, false)[1]
-      local new_line
-
-      if batch.candidates[item_idx].selected then
-        new_line = line:gsub("^%[ %]", "[x]")
-        vim.api.nvim_buf_clear_namespace(popup.bufnr, batch.namespace, row - 1, row)
-        vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "DiagnosticOk", row - 1, 0, 3)
+      -- Use custom key handler if provided, otherwise toggle selected flag
+      local refresh = false
+      if batch.actions.key_select then
+        refresh = batch.actions.key_select(item)
       else
-        new_line = line:gsub("^%[x%]", "[ ]")
-        vim.api.nvim_buf_clear_namespace(popup.bufnr, batch.namespace, row - 1, row)
-        vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "DiagnosticError", row - 1, 0, 3)
+        item.selected = not item.selected
+        refresh = true
       end
 
-      vim.api.nvim_buf_set_lines(popup.bufnr, row - 1, row, false, { new_line })
-
-      -- Restore tag highlighting
-      local tag_end = new_line:find(":", 4) or 10
-      vim.api.nvim_buf_add_highlight(popup.bufnr, batch.namespace, "Type", row - 1, 4, tag_end)
+      -- Refresh display if needed
+      if refresh then
+        M.render_batch_dialog()
+      end
     end
   end, opts)
 
@@ -618,72 +535,436 @@ function M.show_batch_ui(bufnr)
     local row = cursor[1]
 
     -- Only toggle if on an item row
-    if row >= 3 and row - 3 < #batch.candidates then
-      local item_idx = row - 3 + 1
-      local new_state = not batch.candidates[item_idx].selected
+    if row >= 3 and row - 3 < #batch.data_items then
+      local item_idx = row - 3
+      local item = batch.data_items[item_idx + 1]
+      local new_state = not item.selected
 
-      -- Set all to match
-      for i = 1, #batch.candidates do
-        batch.candidates[i].selected = new_state
+      -- Use custom handler if provided, otherwise toggle all items
+      local refresh = false
+      if batch.actions.key_select_all then
+        refresh = batch.actions.key_select_all(item, new_state)
+      else
+        -- Set all to match
+        for i, item in ipairs(batch.data_items) do
+          item.selected = new_state
+        end
+        refresh = true
       end
 
-      -- Update display
-      M.show_batch_ui(bufnr)
+      -- Refresh display if needed
+      if refresh then
+        M.render_batch_dialog()
+      end
     end
   end, opts)
 
+  -- Action key (for task-specific actions)
+  if batch.mode == "task_list" or batch.mode == "tag_review" then
+    popup:map("n", key_action, function()
+      local cursor = vim.api.nvim_win_get_cursor(popup.winid)
+      local row = cursor[1]
+
+      -- Only act on item rows
+      if row >= 3 and row - 3 < #batch.data_items then
+        local item_idx = row - 3
+        local item = batch.data_items[item_idx + 1]
+
+        if batch.actions.key_action then
+          local refresh = batch.actions.key_action(item)
+          if refresh then
+            M.render_batch_dialog()
+          end
+        end
+      end
+    end, opts)
+  end
+
   -- Apply and exit: use quit key
   popup:map("n", key_quit, function()
-    M.apply_selections()
+    M.complete_dialog(false) -- Not cancelled
   end, opts)
 
   -- Cancel and exit: use unselect key
   popup:map("n", key_cancel, function()
-    M.cancel_batch_processing()
+    M.complete_dialog(true) -- Cancelled
   end, opts)
 
   -- Help: use help key
   popup:map("n", key_help, function()
-    M.show_help_popup()
+    M.show_help_popup(options.help_config)
   end, opts)
 
-  -- Jump to tag on Enter
+  -- Jump to source on Enter
   popup:map("n", "<CR>", function()
     local cursor = vim.api.nvim_win_get_cursor(popup.winid)
     local row = cursor[1]
 
     -- Only jump if on an item row
-    if row >= 3 and row - 3 < #batch.candidates then
-      local item_idx = row - 3 + 1
-      M.jump_to_tag(bufnr, batch.candidates[item_idx].lnum)
+    if row >= 3 and row - 3 < #batch.data_items then
+      M.highlight_item_source(row - 3)
     end
   end, opts)
 
-  -- Set active flag
-  batch.active = true
-  batch.visible = true
+  -- Add task-specific actions if in relevant modes
+  if batch.mode == "task_list" or batch.mode == "tag_review" then
+    -- Edit
+    popup:map("n", key_edit, function()
+      local cursor = vim.api.nvim_win_get_cursor(popup.winid)
+      local row = cursor[1]
 
+      if row >= 3 and row - 3 < #batch.data_items then
+        local item_idx = row - 3
+        local item = batch.data_items[item_idx + 1]
+
+        if batch.actions.key_edit then
+          local refresh = batch.actions.key_edit(item)
+          if refresh then
+            M.render_batch_dialog()
+          end
+        end
+      end
+    end, opts)
+
+    -- Done/complete
+    popup:map("n", key_done, function()
+      local cursor = vim.api.nvim_win_get_cursor(popup.winid)
+      local row = cursor[1]
+
+      if row >= 3 and row - 3 < #batch.data_items then
+        local item_idx = row - 3
+        local item = batch.data_items[item_idx + 1]
+
+        if batch.actions.key_done then
+          local refresh = batch.actions.key_done(item)
+          if refresh then
+            M.render_batch_dialog()
+          end
+        end
+      end
+    end, opts)
+
+    -- Delete
+    popup:map("n", key_delete, function()
+      local cursor = vim.api.nvim_win_get_cursor(popup.winid)
+      local row = cursor[1]
+
+      if row >= 3 and row - 3 < #batch.data_items then
+        local item_idx = row - 3
+        local item = batch.data_items[item_idx + 1]
+
+        if batch.actions.key_delete then
+          local refresh = batch.actions.key_delete(item)
+          if refresh then
+            M.render_batch_dialog()
+          end
+        end
+      end
+    end, opts)
+  end
+
+  batch.visible = true
   return popup
 end
 
--- Cancel batch processing
-function M.cancel_batch_processing()
-  utils.notify("Cancelling batch processing")
+-- Render the batch dialog with current data
+function M.render_batch_dialog()
+  if not ui_components.popup or not ui_components.popup.bufnr then
+    return
+  end
 
-  -- Just close the UI without processing
-  M.close_batch_ui()
+  local bufnr = ui_components.popup.bufnr
 
-  -- Notify user
-  utils.notify("Tag processing cancelled")
+  -- Create content with header rows
+  local content = {}
+
+  -- Title row based on mode
+  if batch.mode == "tag_select" then
+    table.insert(content, "Select which tags to create tasks for:")
+  elseif batch.mode == "tag_review" then
+    table.insert(content, "Review tasks for tracked tags:")
+  elseif batch.mode == "task_list" then
+    table.insert(content, "Manage tasks:")
+  else
+    table.insert(content, "Select items:")
+  end
+
+  -- Add blank line before content
+  table.insert(content, "")
+
+  -- Generate column headers if needed
+  if batch.mode == "task_list" or batch.mode == "tag_review" then
+    local header_row = ""
+    for _, col in ipairs(batch.columns) do
+      if col == "select" then
+        header_row = header_row .. "    " -- Space for checkbox
+      elseif col == "tag" then
+        header_row = header_row .. "TAG     "
+      elseif col == "description" then
+        header_row = header_row .. "DESCRIPTION                 "
+      elseif col == "line" then
+        header_row = header_row .. "LINE    "
+      elseif col == "project" then
+        header_row = header_row .. "PROJECT       "
+      elseif col == "due" then
+        header_row = header_row .. "DUE DATE   "
+      elseif col == "priority" then
+        header_row = header_row .. "PRI "
+      elseif col == "status" then
+        header_row = header_row .. "STATUS     "
+      else
+        -- Generic column
+        header_row = header_row .. string.upper(col) .. "     "
+      end
+    end
+    table.insert(content, header_row)
+  end
+
+  -- Format icons for selected/unselected
+  local icons = get_icons()
+
+  -- Generate rows for each item
+  for i, item in ipairs(batch.data_items) do
+    local row_content = ""
+
+    -- Format the item using the formatter if available
+    local formatted_item = item
+    if batch.formatter then
+      formatted_item = batch.formatter(item, i)
+    end
+
+    -- Build the row based on columns
+    for _, col in ipairs(batch.columns) do
+      if col == "select" then
+        if formatted_item.select or formatted_item.selected then
+          row_content = row_content .. "[" .. icons.selected .. "] "
+        else
+          row_content = row_content .. "[" .. icons.unselected .. "] "
+        end
+      elseif col == "tag" then
+        local tag = formatted_item.tag or "TAG"
+        row_content = row_content .. utils.clip_text(tag, 8) .. " "
+      elseif col == "description" then
+        local desc = formatted_item.description or ""
+        row_content = row_content .. utils.clip_text(desc, 25) .. " "
+      elseif col == "line" then
+        local line = formatted_item.line or ""
+        row_content = row_content .. line .. " "
+      elseif col == "project" then
+        local project = formatted_item.project or ""
+        row_content = row_content .. utils.clip_text(project, 12) .. " "
+      elseif col == "due" then
+        local due = formatted_item.due or ""
+        row_content = row_content .. utils.clip_text(due, 10) .. " "
+      elseif col == "priority" then
+        local priority = formatted_item.priority or ""
+        row_content = row_content .. priority .. " "
+      elseif col == "status" then
+        local status = formatted_item.status or "pending"
+        row_content = row_content .. utils.clip_text(status, 10) .. " "
+      else
+        -- Generic column
+        local value = formatted_item[col] or ""
+        if type(value) == "string" then
+          row_content = row_content .. utils.clip_text(value, 10) .. " "
+        else
+          row_content = row_content .. tostring(value) .. " "
+        end
+      end
+    end
+
+    table.insert(content, row_content)
+  end
+
+  -- Set buffer content
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, content)
+
+  -- Apply highlighting
+  vim.api.nvim_buf_add_highlight(bufnr, -1, "Title", 0, 0, -1)
+
+  -- Highlight column headers if present
+  if batch.mode == "task_list" or batch.mode == "tag_review" then
+    vim.api.nvim_buf_add_highlight(bufnr, -1, "Special", 2, 0, -1)
+  end
+
+  -- Clear previous namespace highlights
+  vim.api.nvim_buf_clear_namespace(bufnr, batch.namespace, 0, -1)
+
+  -- Highlight individual items
+  local header_offset = (batch.mode == "task_list" or batch.mode == "tag_review") and 3 or 2
+
+  for i = 1, #batch.data_items do
+    local line_idx = i + header_offset - 1
+    local line = content[line_idx + 1]
+
+    -- Highlight checkbox
+    if line and line:sub(1, 1) == "[" then
+      if line:sub(2, 2) == icons.selected then
+        vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "DiagnosticOk", line_idx, 0, 3)
+      else
+        vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "DiagnosticError", line_idx, 0, 3)
+      end
+    end
+
+    -- Highlight tag column if present
+    local tag_start = line and line:find("[A-Z]+") or nil
+    if tag_start and tag_start > 3 then
+      local tag_end = line:find(" ", tag_start) or tag_start + 8
+      vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "Type", line_idx, tag_start - 1, tag_end)
+    end
+
+    -- Highlight priority if present
+    if vim.tbl_contains(batch.columns, "priority") then
+      local col_idx = 0
+      for j, col in ipairs(batch.columns) do
+        if col == "priority" then
+          col_idx = j
+          break
+        end
+      end
+
+      if col_idx > 0 then
+        -- Calculate approximate position of priority column
+        local pos = 4 -- Checkbox width
+        for j = 1, col_idx - 1 do
+          if batch.columns[j] == "tag" then
+            pos = pos + 8
+          elseif batch.columns[j] == "description" then
+            pos = pos + 25
+          elseif batch.columns[j] == "line" then
+            pos = pos + 8
+          elseif batch.columns[j] == "project" then
+            pos = pos + 12
+          elseif batch.columns[j] == "due" then
+            pos = pos + 10
+          elseif batch.columns[j] == "status" then
+            pos = pos + 10
+          else
+            pos = pos + 10
+          end
+        end
+
+        local priority = batch.data_items[i].priority or ""
+        if priority == "H" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "ErrorMsg", line_idx, pos, pos + 1)
+        elseif priority == "M" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "WarningMsg", line_idx, pos, pos + 1)
+        elseif priority == "L" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "Comment", line_idx, pos, pos + 1)
+        end
+      end
+    end
+
+    -- Highlight status if present
+    if vim.tbl_contains(batch.columns, "status") then
+      local col_idx = 0
+      for j, col in ipairs(batch.columns) do
+        if col == "status" then
+          col_idx = j
+          break
+        end
+      end
+
+      if col_idx > 0 then
+        -- Calculate approximate position of status column
+        local pos = 4 -- Checkbox width
+        for j = 1, col_idx - 1 do
+          if batch.columns[j] == "tag" then
+            pos = pos + 8
+          elseif batch.columns[j] == "description" then
+            pos = pos + 25
+          elseif batch.columns[j] == "line" then
+            pos = pos + 8
+          elseif batch.columns[j] == "project" then
+            pos = pos + 12
+          elseif batch.columns[j] == "due" then
+            pos = pos + 10
+          elseif batch.columns[j] == "priority" then
+            pos = pos + 5
+          else
+            pos = pos + 10
+          end
+        end
+
+        local status = batch.data_items[i].status or ""
+        local status_len = string.len(status)
+
+        if status == "completed" or status == "done" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "DiagnosticOk", line_idx, pos, pos + status_len)
+        elseif status == "pending" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "WarningMsg", line_idx, pos, pos + status_len)
+        elseif status == "deleted" then
+          vim.api.nvim_buf_add_highlight(bufnr, batch.namespace, "DiagnosticError", line_idx, pos, pos + status_len)
+        end
+      end
+    end
+  end
 end
 
--- Close batch UI
-function M.close_batch_ui()
-  utils.notify("Closing batch UI")
+-- Highlight the source item in the original buffer
+function M.highlight_item_source(item_idx)
+  if not batch.source_bufnr or not vim.api.nvim_buf_is_valid(batch.source_bufnr) then
+    return false
+  end
 
+  -- Get the item
+  local item = batch.data_items[item_idx + 1]
+  if not item then
+    return false
+  end
+
+  -- Extract line number from item
+  local lnum = item.lnum
+  if not lnum then
+    if item._data and item._data.lnum then
+      lnum = item._data.lnum
+    else
+      return false
+    end
+  end
+
+  -- Jump to the tag in the source buffer
+  local buffer = require("taskforge.tracker.buffer")
+  buffer.jump_to_tag(batch.source_bufnr, lnum)
+
+  -- Create highlight namespace if needed
+  if not batch.highlight_namespace then
+    batch.highlight_namespace = vim.api.nvim_create_namespace("taskforge_tag_highlight")
+  end
+
+  -- Clear previous highlights
+  vim.api.nvim_buf_clear_namespace(batch.source_bufnr, batch.highlight_namespace, 0, -1)
+
+  -- Add highlight to the source line
+  local cfg = config.get().interface.batch_ui or {}
+  if cfg.highlight_line ~= false then
+    vim.api.nvim_buf_add_highlight(batch.source_bufnr, batch.highlight_namespace, "Visual", lnum, 0, -1)
+  end
+
+  -- Focus back to the dialog if it's active
+  if ui_components.popup and ui_components.popup.winid and vim.api.nvim_win_is_valid(ui_components.popup.winid) then
+    vim.api.nvim_set_current_win(ui_components.popup.winid)
+  end
+
+  return true
+end
+
+-- Complete the dialog and call the completion callback
+function M.complete_dialog(cancelled)
+  -- Call completion callback if provided
+  if batch.on_complete then
+    batch.on_complete(batch.data_items, cancelled)
+  end
+
+  -- Close the UI
+  M.close_dialog()
+end
+
+-- Close the batch dialog
+function M.close_dialog()
   -- Clear highlight in buffer
-  if batch.highlight_namespace and batch.bufnr then
-    pcall(vim.api.nvim_buf_clear_namespace, batch.bufnr, batch.highlight_namespace, 0, -1)
+  if batch.highlight_namespace and batch.source_bufnr and vim.api.nvim_buf_is_valid(batch.source_bufnr) then
+    pcall(vim.api.nvim_buf_clear_namespace, batch.source_bufnr, batch.highlight_namespace, 0, -1)
   end
 
   -- Unmount popup if visible
@@ -697,359 +978,161 @@ function M.close_batch_ui()
   -- Reset batch state
   batch.active = false
   batch.visible = false
-  batch.selected_index = 1
+  batch.data_items = {}
+  batch.source_bufnr = nil
 
-  utils.notify("Batch UI closed")
+  utils.debug_log("UI", "Dialog closed")
 end
 
 -- Simple selection UI fallback for when NUI is not available
-function M.show_simple_selection(bufnr, candidates)
-  if #candidates == 0 then
-    utils.notify("No tags found to process")
+function M.show_simple_selection(options)
+  local items = options.data_items or {}
+  if #items == 0 then
+    utils.notify("No items to process")
     return
   end
 
   -- Format items for selection
-  local items = {}
-  for i, candidate in ipairs(candidates) do
-    local selected = candidate.def.create == "ask"
-    table.insert(items, {
+  local formatted_items = {}
+  for i, item in ipairs(items) do
+    local formatted = options.item_formatter and options.item_formatter(item, i) or item
+
+    table.insert(formatted_items, {
       text = string.format(
-        "[%s] %s: %s (line %d)",
-        selected and "✓" or "✗",
-        candidate.tag,
-        candidate.description:sub(1, 40) .. (candidate.description:len() > 40 and "..." or ""),
-        candidate.lnum + 1
+        "[%s] %s: %s",
+        formatted.selected and "✓" or "✗",
+        formatted.tag or "",
+        formatted.description or ""
       ),
       index = i,
-      candidate = candidate,
-      selected = selected,
+      item = item,
+      _data = formatted._data or item,
     })
   end
 
-  vim.ui.select(items, {
-    prompt = "Select tags to create tasks for:",
+  -- Show UI selector
+  vim.ui.select(formatted_items, {
+    prompt = options.title or "Select items:",
     format_item = function(item)
       return item.text
     end,
   }, function(selected)
-    if selected then
+    if selected and options.source_bufnr and selected._data and selected._data.lnum then
       -- Jump to the selected tag
-      vim.api.nvim_win_set_cursor(0, { selected.candidate.lnum + 1, 0 })
+      local buffer = require("taskforge.tracker.buffer")
+      buffer.jump_to_tag(options.source_bufnr, selected._data.lnum)
 
-      -- Ask for confirmation
-      utils.confirm_yesno(
-        "Create task for: " .. selected.candidate.tag .. ": " .. selected.candidate.description .. "?",
-        function(choice)
-          if choice == 1 then -- Yes
-            -- Process this tag
-            process_auto_tag(bufnr, selected.candidate)
-
-            -- Show the next candidate
-            table.remove(candidates, selected.index)
-            if #candidates > 0 then
-              vim.defer_fn(function()
-                M.show_simple_selection(bufnr, candidates)
-              end, 100)
-            end
-          else
-            -- Skip to next or mark as optout
-            utils.confirm_yesno("Add [notrack] marker to prevent future prompts?", function(choice2)
-              if choice2 == 1 then
-                -- Add opt-out marker
-                local tags = require("taskforge.tracker.tags")
-                tags.add_optout_marker(bufnr, selected.candidate.lnum)
-              end
-
-              -- Show the next candidate
-              table.remove(candidates, selected.index)
-              if #candidates > 0 then
-                vim.defer_fn(function()
-                  M.show_simple_selection(bufnr, candidates)
-                end, 10)
-              end
-            end)
-          end
-        end
-      )
+      -- Process selection
+      if options.on_complete then
+        local item = items[selected.index]
+        item.selected = not item.selected
+        options.on_complete({ item }, false)
+      end
     end
   end)
 end
 
--- Navigate between tags in a buffer
-function M.navigate_tags_in_buffer(bufnr)
+-- Review tags in a buffer
+function M.review_tags_in_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Get all tags in the buffer
-  local tags = {}
   local cached_tags = core.get_all_cached_tags(bufnr)
-
   if not cached_tags or vim.tbl_isempty(cached_tags) then
     utils.notify("No tags found in buffer", vim.log.levels.INFO)
     return
   end
 
-  -- Convert to list and sort by line number
+  -- Convert to list format
+  local tags = {}
   for lnum, tag_data in pairs(cached_tags) do
-    table.insert(tags, {
+    local item = {
       lnum = lnum,
       text = tag_data.text,
       tag_name = tag_data.tag_name,
       uuid = tag_data.uuid,
-    })
+      selected = false,
+    }
+
+    -- If there's a UUID, fetch task info
+    if tag_data.uuid then
+      local tasks = require("taskforge.tasks")
+      local task = tasks.get_task(tag_data.uuid)
+      if task then
+        item.task = task
+        item.description = task.description
+        item.project = task.project
+        item.priority = task.priority
+        item.due = task.due
+        item.status = task.status
+      else
+        item.description = "Task not found"
+      end
+    else
+      item.description = tag_data.text:sub(1, 40)
+    end
+
+    table.insert(tags, item)
   end
 
+  -- Sort by line number
   table.sort(tags, function(a, b)
     return a.lnum < b.lnum
   end)
 
-  -- Set up state for navigation
-  local state = {
-    current_index = 1,
-    tags = tags,
-  }
+  -- Show tags in review dialog
+  M.show_batch_dialog({
+    source_bufnr = bufnr,
+    data_items = tags,
+    mode = "tag_review",
+    title = "Tag Review",
+    columns = { "select", "tag", "description", "line", "status" },
+    item_formatter = function(item, idx)
+      return {
+        select = item.selected,
+        tag = item.tag_name or "TAG",
+        description = item.description or "",
+        line = "line " .. (item.lnum + 1),
+        status = item.status or "pending",
+        _data = item,
+      }
+    end,
+    key_select = function(item)
+      item.selected = not item.selected
+      return true
+    end,
+    key_done = function(item)
+      if item.uuid then
+        require("taskforge.tasks").done(item.uuid)
+        item.status = "completed"
+        return true
+      end
+      return false
+    end,
+    on_complete = function(items, cancelled)
+      if not cancelled then
+        -- Handle selected items (e.g., batch operations)
+        local selected = {}
+        for _, item in ipairs(items) do
+          if item.selected then
+            table.insert(selected, item)
+          end
+        end
 
-  -- Store state in buffer variable
-  vim.api.nvim_buf_set_var(bufnr, "taskforge_nav_state", state)
-
-  -- Set up keymaps
-  M._setup_navigation_keymaps(bufnr)
-
-  -- Move to first tag
-  M._goto_tag(bufnr, 1)
-
-  -- Show help
-  utils.notify("Tag navigation active. Use n/p to move between tags, ESC to exit", vim.log.levels.INFO)
-end
-
--- Set up keymaps for tag navigation
-function M._setup_navigation_keymaps(bufnr)
-  local opts = { buffer = bufnr, noremap = true, silent = true }
-
-  -- Next tag
-  vim.api.nvim_buf_set_keymap(bufnr, "n", "n", [[<cmd>lua require('taskforge.tracker.ui')._goto_next_tag()<CR>]], opts)
-
-  -- Previous tag
-  vim.api.nvim_buf_set_keymap(bufnr, "n", "p", [[<cmd>lua require('taskforge.tracker.ui')._goto_prev_tag()<CR>]], opts)
-
-  -- Exit navigation
-  vim.api.nvim_buf_set_keymap(
-    bufnr,
-    "n",
-    "<Esc>",
-    [[<cmd>lua require('taskforge.tracker.ui')._exit_tag_nav()<CR>]],
-    opts
-  )
-end
-
--- Go to next tag
-function M._goto_next_tag()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local ok, state = pcall(vim.api.nvim_buf_get_var, bufnr, "taskforge_nav_state")
-
-  if ok and state then
-    local new_index = state.current_index + 1
-    if new_index > #state.tags then
-      new_index = 1 -- Wrap around
-    end
-
-    M._goto_tag(bufnr, new_index)
-  end
-end
-
--- Go to previous tag
-function M._goto_prev_tag()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local ok, state = pcall(vim.api.nvim_buf_get_var, bufnr, "taskforge_nav_state")
-
-  if ok and state then
-    local new_index = state.current_index - 1
-    if new_index < 1 then
-      new_index = #state.tags -- Wrap around
-    end
-
-    M._goto_tag(bufnr, new_index)
-  end
-end
-
--- Go to specific tag by index
-function M._goto_tag(bufnr, index)
-  local ok, state = pcall(vim.api.nvim_buf_get_var, bufnr, "taskforge_nav_state")
-
-  if ok and state and index <= #state.tags then
-    -- Update current index
-    state.current_index = index
-    vim.api.nvim_buf_set_var(bufnr, "taskforge_nav_state", state)
-
-    -- Get tag info
-    local tag = state.tags[index]
-
-    -- Move cursor to tag
-    vim.api.nvim_win_set_cursor(0, { tag.lnum + 1, 0 })
-    vim.cmd("normal! zz") -- Center view
-
-    -- Show info in command line
-    local info =
-      string.format("Tag %d/%d: %s", index, #state.tags, tag.text:sub(1, 50) .. (tag.text:len() > 50 and "..." or ""))
-
-    vim.api.nvim_echo({ { info, "SpecialChar" } }, false, {})
-  end
-end
-
--- Exit tag navigation mode
-function M._exit_tag_nav()
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  -- Remove keymaps
-  pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", "n")
-  pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", "p")
-  pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", "<Esc>")
-
-  -- Remove state
-  pcall(vim.api.nvim_buf_del_var, bufnr, "taskforge_nav_state")
-
-  utils.notify("Tag navigation ended", vim.log.levels.INFO)
-end
-
--- Show info about a tag
-function M.show_tag_info(bufnr, lnum)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-  lnum = lnum or (vim.api.nvim_win_get_cursor(0)[1] - 1)
-
-  -- Get tag info from cache
-  local tag_data = core.get_cached_tag(bufnr, lnum)
-  if not tag_data then
-    utils.notify("No tag found at cursor position", vim.log.levels.WARN)
-    return
-  end
-
-  -- Check if tag has a UUID
-  if tag_data.uuid then
-    -- Get task details
-    local tasks = require("taskforge.tasks")
-    local task = tasks.get_task(tag_data.uuid)
-
-    if task then
-      -- Show task info in a popup
-      M._show_task_popup(task)
-    else
-      utils.notify("Task not found for UUID: " .. tag_data.uuid, vim.log.levels.WARN)
-    end
-  else
-    -- Just show tag info
-    local info =
-      string.format("Tag: %s\nLine: %d\nNot tracked in taskwarrior", tag_data.tag_name or "Unknown", lnum + 1)
-
-    utils.notify(info, vim.log.levels.INFO)
-  end
-end
-
--- Show task info in a popup
-function M._show_task_popup(task)
-  local has_nui, nui = pcall(require, "nui")
-
-  if has_nui then
-    -- Use Nui popup
-    local Popup = require("nui.popup")
-    local event = require("nui.utils.autocmd").event
-
-    -- Format task details
-    local content = {
-      "Task: " .. task.description,
-      "UUID: " .. task.uuid,
-      "Status: " .. task.status,
-    }
-
-    if task.project then
-      table.insert(content, "Project: " .. task.project)
-    end
-
-    if task.priority then
-      table.insert(content, "Priority: " .. task.priority)
-    end
-
-    if task.tags and #task.tags > 0 then
-      table.insert(content, "Tags: " .. table.concat(task.tags, ", "))
-    end
-
-    if task.due then
-      table.insert(content, "Due: " .. task.due)
-    end
-
-    if task.urgency then
-      table.insert(content, "Urgency: " .. string.format("%.2f", task.urgency))
-    end
-
-    -- Create popup
-    local popup = Popup({
-      enter = false,
-      focusable = true,
-      border = {
-        style = "rounded",
-        text = {
-          top = " Task Details ",
-          top_align = "center",
-        },
-      },
-      position = "50%",
-      size = {
-        width = 60,
-        height = #content + 2,
-      },
-      buf_options = {
-        modifiable = false,
-        readonly = true,
-      },
-    })
-
-    -- Mount popup
-    popup:mount()
-
-    -- Set content
-    vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, content)
-
-    -- Close on events
-    popup:on(event.BufLeave, function()
-      popup:unmount()
-    end)
-
-    -- Close on key
-    popup:map("n", "q", function()
-      popup:unmount()
-    end, { noremap = true })
-
-    popup:map("n", "<Esc>", function()
-      popup:unmount()
-    end, { noremap = true })
-  else
-    -- Fallback to notification
-    local info = string.format("Task: %s\nStatus: %s\nUUID: %s", task.description, task.status, task.uuid)
-
-    utils.notify(info, vim.log.levels.INFO)
-  end
+        if #selected > 0 then
+          utils.notify(string.format("Selected %d tags", #selected))
+          -- Perform batch operations if needed
+        end
+      end
+    end,
+  })
 end
 
 -- Add emergency exit command
 function M.setup_emergency_exit()
   vim.api.nvim_create_user_command("TaskforgeUIClose", function()
-    if ui_components.popup then
-      pcall(function()
-        ui_components.popup:unmount()
-      end)
-      ui_components.popup = nil
-    end
-
-    -- Reset batch state
-    batch.active = false
-    batch.visible = false
-
-    -- Clear any highlights
-    if batch.highlight_namespace and batch.bufnr then
-      pcall(vim.api.nvim_buf_clear_namespace, batch.bufnr, batch.highlight_namespace, 0, -1)
-    end
-
-    -- Notify
-    require("taskforge.utils").notify("UI forcibly closed")
+    M.close_dialog()
+    utils.notify("UI forcibly closed")
   end, {})
 end
 

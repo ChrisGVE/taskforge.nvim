@@ -22,7 +22,6 @@ function M.setup()
   local buffer = require("taskforge.tracker.buffer")
   local formatter = require("taskforge.tracker.formatter")
   local ui = require("taskforge.tracker.ui")
-  ui.setup_emergency_exit()
 
   -- Set up the submodules
   core.setup()

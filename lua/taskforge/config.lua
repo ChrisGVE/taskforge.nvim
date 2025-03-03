@@ -208,7 +208,7 @@ local M = {
       help = "?", -- shows help on the keymaps
       undo = "u", -- undo the last acitons (one by one, back to the first action when the dialog opened)
     },
-    view = {
+    main_interface = {
       default = "list", -- or "tree" for dependency view
       position = "right",
       width = 40,
