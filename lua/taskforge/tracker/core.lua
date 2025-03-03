@@ -4,6 +4,7 @@
 local M = {}
 local config = require("taskforge.config")
 local debug = require("taskforge.debug")
+local debounce_ms = 500
 
 -- Add initialization function for buffer tracking
 function M.initialize_buffer_tracking(bufnr)
@@ -53,9 +54,7 @@ function M.setup()
   M._load_tasks()
 
   -- Get debounce setting from config
-  M.config = {
-    debounce_ms = config.get().tags.debounce or 500,
-  }
+  debounce_ms = config.get().tags.debounce or 500
 end
 
 -- Load existing tasks from taskwarrior
@@ -108,13 +107,13 @@ function M.reset_debounce_timer(bufnr)
     local time_since_change = vim.loop.now() - (M.state.last_change[bufnr] or 0)
     local tracker = require("taskforge.tracker")
 
-    if not tracker.state.edit_active or time_since_change > M.config.debounce_ms then
+    if not tracker.state.edit_active or time_since_change > debounce_ms then
       -- Process buffer when editing has stopped for a while
       local buffer = require("taskforge.tracker.buffer")
       buffer.process(bufnr, false) -- false = not initial processing
       M.state.debounce_timers[bufnr] = nil
     end
-  end, M.config.debounce_ms)
+  end, debounce_ms)
 end
 
 -- Clean up resources for a buffer
