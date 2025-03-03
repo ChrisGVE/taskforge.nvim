@@ -1,5 +1,6 @@
 -- lua/taskforge/ui/batch.lua
 --
+--
 -- Batch processing dialog for tag handling
 
 local M = {}
@@ -21,6 +22,7 @@ local state = {
   actions = {},
   formatter = nil,
   on_complete = nil,
+  processing_lock = {}, -- Buffer-specific processing lock
 }
 
 -- Process a batch of tag candidates
@@ -29,8 +31,14 @@ local state = {
 function M.process_tags(bufnr, candidates)
   debug.log("BATCH", "Processing " .. #candidates .. " tag candidates")
 
-  -- Use vim.notify for visibility during debugging
-  vim.notify("Taskforge: Processing " .. #candidates .. " tags", vim.log.levels.INFO)
+  -- Check if we're already processing this buffer to prevent recursion
+  if state.processing_lock[bufnr] then
+    debug.log("BATCH", "Already processing buffer " .. bufnr .. ", skipping")
+    return
+  end
+
+  -- Set processing lock
+  state.processing_lock[bufnr] = true
 
   -- Group candidates by type for processing
   local buffer = require("taskforge.tracker.buffer")
@@ -43,7 +51,7 @@ function M.process_tags(bufnr, candidates)
 
   -- If there are interactive tags to handle, show the UI
   if #result.interactive > 0 then
-    vim.notify(string.format("Taskforge: Found %d interactive tags", #result.interactive), vim.log.levels.INFO)
+    debug.log("BATCH", "Found " .. #result.interactive .. " interactive tags")
 
     -- We need to delay showing the UI to prevent focus issues
     vim.schedule(function()
@@ -70,6 +78,8 @@ function M.process_tags(bufnr, candidates)
           if not cancelled then
             M.apply_tag_selections(bufnr, items)
           end
+          -- Release buffer processing lock
+          state.processing_lock[bufnr] = nil
         end,
       })
     end)
@@ -82,8 +92,14 @@ function M.process_tags(bufnr, candidates)
       msg = msg .. string.format("%d tags prepared for manual handling.", result.manual_processed)
     end
     utils.notify(msg, vim.log.levels.INFO)
+
+    -- Release buffer processing lock
+    state.processing_lock[bufnr] = nil
   else
     utils.notify("No tags found to process", vim.log.levels.INFO)
+
+    -- Release buffer processing lock
+    state.processing_lock[bufnr] = nil
   end
 end
 
@@ -97,7 +113,19 @@ function M.apply_tag_selections(bufnr, items)
   local buffer = require("taskforge.tracker.buffer")
   local tags = require("taskforge.tracker.tags")
 
-  for _, item in ipairs(items) do
+  -- Validate items
+  if not items or #items == 0 then
+    utils.notify("No items to process", vim.log.levels.WARN)
+    return
+  end
+
+  -- Progress indicator
+  local total_items = #items
+  local progress_msg = "Processing tags "
+  utils.notify(progress_msg .. "(0/" .. total_items .. ")", vim.log.levels.INFO)
+
+  -- Process items with progress updates
+  for i, item in ipairs(items) do
     if item.selected then
       -- Create task from tag
       buffer.process_auto_tag(bufnr, item._data)
@@ -107,12 +135,21 @@ function M.apply_tag_selections(bufnr, items)
       tags.add_optout_marker(bufnr, item._data.lnum)
       optout = optout + 1
     end
+
+    -- Update progress every few items
+    if i % 5 == 0 then
+      utils.notify(progress_msg .. "(" .. i .. "/" .. total_items .. ")", vim.log.levels.INFO)
+    end
   end
+
+  -- Track that the buffer has been batch processed
+  local tracker = require("taskforge.tracker.core")
+  tracker.set_buffer_batch_processed(bufnr)
 
   -- Notify results
   if processed > 0 or optout > 0 then
     local msg = string.format("Processed %d tags, marked %d tags as [notrack]", processed, optout)
-    utils.notify(msg)
+    utils.notify(msg, vim.log.levels.INFO)
   end
 end
 
@@ -197,10 +234,9 @@ function M.show_dialog(options)
   end
 
   -- Get batch UI config
-  local config_data = config.get()
-  local batch_cfg = (config_data.interface and config_data.interface.batch_ui) or {}
+  local batch_cfg = (cfg.interface and cfg.interface.batch_ui) or {}
 
-  -- Calculate dialog size
+  -- Calculate size options
   local size_options = {
     width_percent = batch_cfg.width_percent or 80,
     height_percent = batch_cfg.height_percent or 20,
@@ -210,6 +246,9 @@ function M.show_dialog(options)
     min_height = batch_cfg.min_height or 5,
     position = batch_cfg.position or "top",
   }
+
+  -- Calculate actual size
+  local size = ui_utils.calculate_size(size_options)
 
   -- Setup dialog keymaps
   local dialog_keymaps = {
@@ -290,7 +329,7 @@ function M.show_dialog(options)
     end,
   }
 
-  -- Add movement keys (handle both string and table keys)
+  -- Add movement keys for up/down (handle both string and array keys)
   local up_keys = type(keymaps.up) == "table" and keymaps.up or { keymaps.up or "k", "<Up>" }
   local down_keys = type(keymaps.down) == "table" and keymaps.down or { keymaps.down or "j", "<Down>" }
 
@@ -325,62 +364,10 @@ function M.show_dialog(options)
 
   -- Add task-specific actions for relevant modes
   if state.mode == "task_list" or state.mode == "tag_review" then
-    -- Edit task
-    dialog_keymaps[key_edit] = function(dlg)
-      local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
-      local row = cursor[1]
-      local header_rows = 3 -- These modes have headers
-
-      if row >= header_rows and row - header_rows < #state.data_items then
-        local item_idx = row - header_rows
-        local item = state.data_items[item_idx + 1]
-
-        if state.actions.key_edit then
-          local refresh = state.actions.key_edit(item)
-          if refresh then
-            M.render_dialog(dlg)
-          end
-        end
-      end
-    end
-
-    -- Mark task as done
-    dialog_keymaps[key_done] = function(dlg)
-      local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
-      local row = cursor[1]
-      local header_rows = 3
-
-      if row >= header_rows and row - header_rows < #state.data_items then
-        local item_idx = row - header_rows
-        local item = state.data_items[item_idx + 1]
-
-        if state.actions.key_done then
-          local refresh = state.actions.key_done(item)
-          if refresh then
-            M.render_dialog(dlg)
-          end
-        end
-      end
-    end
-
-    -- Delete task
-    dialog_keymaps[key_delete] = function(dlg)
-      local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
-      local row = cursor[1]
-      local header_rows = 3
-
-      if row >= header_rows and row - header_rows < #state.data_items then
-        local item_idx = row - header_rows
-        local item = state.data_items[item_idx + 1]
-
-        if state.actions.key_delete then
-          local refresh = state.actions.key_delete(item)
-          if refresh then
-            M.render_dialog(dlg)
-          end
-        end
-      end
-    end
+    -- Add task management keymaps
+    dialog_keymaps[key_edit] = M._create_edit_handler()
+    dialog_keymaps[key_done] = M._create_done_handler()
+    dialog_keymaps[key_delete] = M._create_delete_handler()
   end
 
   -- Add Enter key to jump to source
@@ -400,13 +387,14 @@ function M.show_dialog(options)
     mode = "batch",
 
     -- Size and position
-    width_percent = size_options.width_percent,
-    height_percent = size_options.height_percent,
-    max_width = size_options.max_width,
-    max_height = size_options.max_height,
-    min_width = size_options.min_width,
-    min_height = size_options.min_height,
-    position = size_options.position,
+    position = {
+      row = size.row,
+      col = size.col,
+    },
+    size = {
+      width = size.width,
+      height = size.height,
+    },
 
     -- Style
     border_style = "rounded",
@@ -475,6 +463,69 @@ function M.show_dialog(options)
   end)
 
   return batch_dialog
+end
+
+-- Create handler for edit action
+function M._create_edit_handler()
+  return function(dlg)
+    local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
+    local row = cursor[1]
+    local header_rows = 3 -- These modes have headers
+
+    if row >= header_rows and row - header_rows < #state.data_items then
+      local item_idx = row - header_rows
+      local item = state.data_items[item_idx + 1]
+
+      if state.actions.key_edit then
+        local refresh = state.actions.key_edit(item)
+        if refresh then
+          M.render_dialog(dlg)
+        end
+      end
+    end
+  end
+end
+
+-- Create handler for done action
+function M._create_done_handler()
+  return function(dlg)
+    local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
+    local row = cursor[1]
+    local header_rows = 3
+
+    if row >= header_rows and row - header_rows < #state.data_items then
+      local item_idx = row - header_rows
+      local item = state.data_items[item_idx + 1]
+
+      if state.actions.key_done then
+        local refresh = state.actions.key_done(item)
+        if refresh then
+          M.render_dialog(dlg)
+        end
+      end
+    end
+  end
+end
+
+-- Create handler for delete action
+function M._create_delete_handler()
+  return function(dlg)
+    local cursor = vim.api.nvim_win_get_cursor(dlg.popup.winid)
+    local row = cursor[1]
+    local header_rows = 3
+
+    if row >= header_rows and row - header_rows < #state.data_items then
+      local item_idx = row - header_rows
+      local item = state.data_items[item_idx + 1]
+
+      if state.actions.key_delete then
+        local refresh = state.actions.key_delete(item)
+        if refresh then
+          M.render_dialog(dlg)
+        end
+      end
+    end
+  end
 end
 
 -- Render the batch dialog content
@@ -620,19 +671,41 @@ function M.render_dialog(dialog)
   -- Clear previous namespace highlights
   vim.api.nvim_buf_clear_namespace(bufnr, dialog.namespace, 0, -1)
 
-  -- Highlight individual items
+  -- Apply custom highlighting to items
+  M._apply_item_highlighting(bufnr, content, dialog.namespace)
+
+  -- Make buffer non-modifiable
+  vim.bo[bufnr].modifiable = false
+end
+
+-- Apply custom highlighting to items
+-- @param bufnr number Buffer number
+-- @param content table Content lines
+-- @param namespace number Highlight namespace
+function M._apply_item_highlighting(bufnr, content, namespace)
+  -- Get icons for selection
+  local icons = ui_utils.get_ui_icons()
+
+  -- Determine header offset
   local header_offset = (state.mode == "task_list" or state.mode == "tag_review") and 3 or 2
 
+  -- Apply highlights to each item
   for i = 1, #state.data_items do
     local line_idx = i + header_offset - 1
     local line = content[line_idx + 1]
+    local item = state.data_items[i]
+
+    -- Skip if invalid line
+    if not line then
+      goto continue
+    end
 
     -- Highlight checkbox
-    if line and line:sub(1, 1) == "[" then
+    if line:sub(1, 1) == "[" then
       if line:sub(2, 2) == icons.selected then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "DiagnosticOk", line_idx, 0, 3)
+        vim.api.nvim_buf_add_highlight(bufnr, namespace, "DiagnosticOk", line_idx, 0, 3)
       else
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "DiagnosticError", line_idx, 0, 3)
+        vim.api.nvim_buf_add_highlight(bufnr, namespace, "DiagnosticError", line_idx, 0, 3)
       end
     end
 
@@ -640,92 +713,88 @@ function M.render_dialog(dialog)
     local tag_start = line and line:find("[A-Z]+") or nil
     if tag_start and tag_start > 3 then
       local tag_end = line:find(" ", tag_start) or tag_start + 8
-      vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "Type", line_idx, tag_start - 1, tag_end)
+      vim.api.nvim_buf_add_highlight(bufnr, namespace, "Type", line_idx, tag_start - 1, tag_end)
     end
 
     -- Highlight priority if present
-    if vim.tbl_contains(state.columns, "priority") then
-      local item = state.data_items[i]
-      local priority = item.priority or ""
-
-      -- Find approximate position of priority in the line
-      local col_pos = 0
-      for j, col_name in ipairs(state.columns) do
-        if col_name == "priority" then
-          break
+    local priority = item.priority or ""
+    if priority ~= "" and vim.tbl_contains(state.columns, "priority") then
+      -- Calculate position of priority in the line
+      local col_pos = M._get_column_position("priority")
+      if col_pos then
+        if priority == "H" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "ErrorMsg", line_idx, col_pos, col_pos + 1)
+        elseif priority == "M" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "WarningMsg", line_idx, col_pos, col_pos + 1)
+        elseif priority == "L" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "Comment", line_idx, col_pos, col_pos + 1)
         end
-
-        if col_name == "select" then
-          col_pos = col_pos + 4
-        elseif col_name == "tag" then
-          col_pos = col_pos + 9
-        elseif col_name == "description" then
-          col_pos = col_pos + 31
-        elseif col_name == "line" then
-          col_pos = col_pos + 9
-        elseif col_name == "project" then
-          col_pos = col_pos + 16
-        elseif col_name == "due" then
-          col_pos = col_pos + 11
-        elseif col_name == "status" then
-          col_pos = col_pos + 11
-        else
-          col_pos = col_pos + 11
-        end
-      end
-
-      if priority == "H" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "ErrorMsg", line_idx, col_pos, col_pos + 1)
-      elseif priority == "M" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "WarningMsg", line_idx, col_pos, col_pos + 1)
-      elseif priority == "L" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "Comment", line_idx, col_pos, col_pos + 1)
       end
     end
 
     -- Highlight status if present
-    if vim.tbl_contains(state.columns, "status") then
-      local item = state.data_items[i]
-      local status = item.status or ""
-
-      -- Find approximate position of status in the line
-      local col_pos = 0
-      for j, col_name in ipairs(state.columns) do
-        if col_name == "status" then
-          break
-        end
-
-        if col_name == "select" then
-          col_pos = col_pos + 4
-        elseif col_name == "tag" then
-          col_pos = col_pos + 9
-        elseif col_name == "description" then
-          col_pos = col_pos + 31
-        elseif col_name == "line" then
-          col_pos = col_pos + 9
-        elseif col_name == "project" then
-          col_pos = col_pos + 16
-        elseif col_name == "due" then
-          col_pos = col_pos + 11
-        elseif col_name == "priority" then
-          col_pos = col_pos + 5
-        else
-          col_pos = col_pos + 11
+    local status = item.status or ""
+    if status ~= "" and vim.tbl_contains(state.columns, "status") then
+      -- Calculate position of status in the line
+      local col_pos = M._get_column_position("status")
+      if col_pos then
+        if status == "completed" or status == "done" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "DiagnosticOk", line_idx, col_pos, col_pos + #status)
+        elseif status == "pending" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "WarningMsg", line_idx, col_pos, col_pos + #status)
+        elseif status == "deleted" then
+          vim.api.nvim_buf_add_highlight(bufnr, namespace, "DiagnosticError", line_idx, col_pos, col_pos + #status)
         end
       end
+    end
 
-      if status == "completed" or status == "done" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "DiagnosticOk", line_idx, col_pos, col_pos + #status)
-      elseif status == "pending" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "WarningMsg", line_idx, col_pos, col_pos + #status)
-      elseif status == "deleted" then
-        vim.api.nvim_buf_add_highlight(bufnr, dialog.namespace, "DiagnosticError", line_idx, col_pos, col_pos + #status)
-      end
+    ::continue::
+  end
+end
+
+-- Calculate position of a column in the display line
+-- @param column_name string Column name
+-- @return number|nil Column position
+function M._get_column_position(column_name)
+  -- Calculate approximate column position
+  local col_idx = nil
+  for i, col in ipairs(state.columns) do
+    if col == column_name then
+      col_idx = i
+      break
     end
   end
 
-  -- Make buffer non-modifiable
-  vim.bo[bufnr].modifiable = false
+  if not col_idx then
+    return nil
+  end
+
+  -- Calculate position
+  local pos = 0
+  for i = 1, col_idx - 1 do
+    local col = state.columns[i]
+    if col == "select" then
+      pos = pos + 4
+    elseif col == "tag" then
+      pos = pos + 9
+    elseif col == "description" then
+      pos = pos + 31
+    elseif col == "line" then
+      pos = pos + 9
+    elseif col == "project" then
+      pos = pos + 16
+    elseif col == "due" then
+      pos = pos + 11
+    elseif col == "priority" then
+      pos = pos + 5
+    elseif col == "status" then
+      pos = pos + 11
+    else
+      pos = pos + 11
+    end
+  end
+
+  return pos
 end
 
 -- Highlight source item in original buffer
@@ -830,57 +899,7 @@ function M.cleanup()
   debug.log("BATCH", "Batch dialog resources cleaned up")
 end
 
--- Show a simple selection UI fallback when NUI is not available
--- @param options table Dialog options
-function M.show_simple_selection(options)
-  local items = options.data_items or {}
-  if #items == 0 then
-    utils.notify("No items to process")
-    return
-  end
-
-  -- Format items for selection
-  local formatted_items = {}
-  for i, item in ipairs(items) do
-    local formatted = options.item_formatter and options.item_formatter(item, i) or item
-
-    table.insert(formatted_items, {
-      text = string.format(
-        "[%s] %s: %s",
-        formatted.selected and "✓" or "✗",
-        formatted.tag or "",
-        formatted.description or ""
-      ),
-      index = i,
-      item = item,
-      _data = formatted._data or item,
-    })
-  end
-
-  -- Show UI selector
-  vim.ui.select(formatted_items, {
-    prompt = options.title or "Select items:",
-    format_item = function(item)
-      return item.text
-    end,
-  }, function(selected)
-    if selected and options.source_bufnr and selected._data and selected._data.lnum then
-      -- Jump to selected tag
-      local buffer = require("taskforge.tracker.buffer")
-      buffer.jump_to_tag(options.source_bufnr, selected._data.lnum)
-
-      -- Process selection
-      if options.on_complete then
-        local item = items[selected.index]
-        item.selected = not item.selected
-        options.on_complete({ item }, false)
-      end
-    end
-  end)
-end
-
--- Review all tags in a buffer
--- @param bufnr number Buffer number
+-- Review tags in a buffer
 function M.review_tags_in_buffer(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 

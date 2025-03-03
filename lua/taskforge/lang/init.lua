@@ -58,6 +58,11 @@ function M.is_supported(bufnr)
     "fugitive",
     "gitcommit",
     "startify",
+    "dashboard",
+    "snacks_dashboard",
+    "quickfix",
+    "nofile",
+    "prompt",
   }
 
   for _, v in ipairs(unsupported) do
@@ -74,8 +79,41 @@ function M.is_supported(bufnr)
     return false
   end
 
+  -- Check if this filetype is in the enabled_ft config
+  local config = require("taskforge.config")
+  local enabled_ft = config.get().tags.enabled_ft or { "*" }
+
+  if not vim.tbl_contains(enabled_ft, "*") and not vim.tbl_contains(enabled_ft, ft) then
+    debug.log("LANG", "Filetype not enabled in config", ft)
+    return false
+  end
+
   debug.log("LANG", "Buffer is supported")
   return true
+end
+
+-- Create an interface validator for language modules
+function M.validate_language_module(module)
+  -- Required functions for a valid language module
+  local required_functions = {
+    "is_comment_string",
+    "extract_tag_info",
+    "detect_comment_context",
+    "add_uuid_to_comment",
+  }
+
+  for _, func_name in ipairs(required_functions) do
+    if type(module[func_name]) ~= "function" then
+      return false, "Missing required function: " .. func_name
+    end
+  end
+
+  -- Required properties
+  if not module.name or not module.comment_patterns then
+    return false, "Missing required properties"
+  end
+
+  return true, "Valid language module"
 end
 
 return M

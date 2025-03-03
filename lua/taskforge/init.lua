@@ -8,6 +8,14 @@ local M = {
   _config = nil,
   _initialized = false,
   _available_deps = {},
+  _module_setup_order = {
+    "taskforge.config",
+    "taskforge.debug",
+    "taskforge.project",
+    "taskforge.tasks",
+    "taskforge.tracker",
+    -- UI modules are loaded separately via schedule
+  },
 }
 
 local function check_dependencies()
@@ -49,21 +57,13 @@ local function check_dependencies()
     ["snacks"] = "folke/snacks.nvim",
     ["telescope"] = "nvim-telescope/telescope.nvim",
     ["fzf-lua"] = "ibhagwan/fzf-lua",
+    ["trouble"] = "folke/trouble.nvim",
   }
 
   -- Check optional Lua dependencies
   for name, repo in pairs(opt_deps) do
     local ok = try_require(name)
     M._available_deps[name] = ok
-
-    -- Only warn about missing dependency if it's the configured picker
-    local picker_type = config and config.get and config.get().interface and config.get().interface.integrations
-    if not ok and picker_type and picker_type[name] then
-      vim.notify(
-        "Taskforge: Configured picker '" .. repo .. "' not found. Falling back to built-in picker.",
-        vim.log.levels.WARN
-      )
-    end
   end
 
   -- We can continue as long as we have plenary
@@ -82,57 +82,46 @@ function M.setup(user_opts)
     return
   end
 
-  local cfg = nil
+  -- Use our custom module loader to prevent circular dependencies
+  local module_loader = require("taskforge.module")
 
-  -- Wrap everything in pcall to catch errors
-  local ok, err = pcall(function()
-    -- Initialize configuration first
-    M._config = require("taskforge.config")
+  -- Initialize configuration first (outside module loader)
+  local config_ok, config = pcall(require, "taskforge.config")
+  if config_ok then
+    M._config = config
     M._config.set(user_opts or {})
-
-    -- Get config for debug setup
-    cfg = M._config.get()
-
-    -- Setup debug module if enabled
-    if cfg.debug and cfg.debug.enable then
-      local debug_ok, debug_module = pcall(require, "taskforge.debug")
-      if debug_ok then
-        debug_module.setup(cfg.debug)
-        vim.notify("Debug module initialized", vim.log.levels.INFO)
-      else
-        vim.notify("Failed to load debug module: " .. tostring(debug_module), vim.log.levels.ERROR)
-      end
-    end
-
-    -- Initialize core modules in order
-    local project_ok, project = pcall(require, "taskforge.project")
-    if project_ok then
-      project.setup()
-    else
-      vim.notify("Failed to initialize project module: " .. tostring(project), vim.log.levels.ERROR)
-    end
-    require("taskforge.tasks").setup()
-
-    -- Initialize UI modules
-    if M._available_deps.taskwarrior then
-      -- Configure taskwarrior
-      require("taskforge.tasks").configure()
-
-      -- Initialize tracker module
-      require("taskforge.tracker").setup()
-
-      -- Initialize UI module
-      require("taskforge.ui").setup()
-
-      -- Set up commands
-      require("taskforge.commands").register()
-    end
-  end)
-
-  -- Report any errors
-  if not ok then
-    vim.notify("Failed to initialize taskforge: " .. tostring(err), vim.log.levels.ERROR)
+  else
+    vim.notify("Failed to load config: " .. tostring(config), vim.log.levels.ERROR)
     return
+  end
+
+  -- Get config for debug setup
+  local cfg = M._config.get()
+
+  -- Setup debug module if enabled
+  if cfg.debug and cfg.debug.enable then
+    local debug_ok, debug_module = pcall(require, "taskforge.debug")
+    if debug_ok then
+      debug_module.setup(cfg.debug)
+    end
+  end
+
+  -- Initialize core modules in order, using our protected module loader
+  local module_results = module_loader.initialize(M._module_setup_order, cfg.debug and cfg.debug.enable)
+
+  -- Configure taskwarrior if available
+  if M._available_deps.taskwarrior then
+    local tasks = module_loader.require("taskforge.tasks")
+    pcall(tasks.configure)
+
+    -- Set up commands
+    local commands_ok, commands = pcall(require, "taskforge.commands")
+    if commands_ok then
+      pcall(commands.register)
+    end
+
+    -- Schedule UI initialization for later
+    module_loader.schedule_ui_init()
   end
 
   -- Set initialization flag
@@ -144,31 +133,29 @@ function M.setup(user_opts)
   end
 end
 
--- Function to access dashboard from other plugins
+-- Function to access dashboard section from other plugins
 function M.get_dashboard_section()
   if not M._initialized then
-    -- Just do minimal initialization
-    M._config = require("taskforge.config")
-    local user_opts = {}
-    M._config.set(user_opts)
+    -- Do minimal initialization
+    local config_ok, config = pcall(require, "taskforge.config")
+    if config_ok then
+      M._config = config
+      M._config.set({})
+    end
   end
 
-  -- Try the standalone dashboard first (for testing)
+  -- Try standalone dashboard first (for testing)
   local ok, standalone = pcall(require, "taskforge.standalone_dashboard")
   if ok and standalone.create_standalone_section then
-    -- Don't try to use utils or other modules that might cause circular dependencies
-    vim.notify("Using standalone dashboard section")
     return standalone.create_standalone_section()
   end
 
   -- Fall back to regular dashboard
   local ok_dashboard, dashboard = pcall(require, "taskforge.dashboard")
   if ok_dashboard then
-    vim.notify("Using regular dashboard section")
     return dashboard.create_section()
   end
 
-  vim.notify("No dashboard section available")
   return {}
 end
 

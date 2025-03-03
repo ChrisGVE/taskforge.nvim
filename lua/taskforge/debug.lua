@@ -107,8 +107,15 @@ end
 
 ---@param level integer
 ---@param debug_info table
+---@param max_depth integer
 ---@return string|nil function_name, string|nil function_source
-local function caller(level, debug_info)
+local function caller(level, debug_info, max_depth)
+  -- Prevent infinite recursion with depth limit
+  max_depth = max_depth or 20
+  if level > max_depth then
+    return "unknown_function", "unknown_source"
+  end
+
   local function get_src(path_name)
     local source
 
@@ -117,10 +124,13 @@ local function caller(level, debug_info)
       return cache_dir[path_name]
     end
 
-    -- when debugging a plugin, we'll have a structure of the kind /lua/<plugin>/file... so we look for this pattern first
-    source = path_name:match(".*/lua/[^/]+/(.*).lua$"):gsub("/", ".")
-    if source == nil then -- we are not in the normal pattern so we'll just return the parent folder and the filename
-      source = path_name:match(".*/([^/]+/.*).lua$"):gsub("/", ".")
+    -- Try to extract the source path
+    local src_match = path_name:match(".*/lua/[^/]+/(.*).lua$")
+    if src_match then
+      source = src_match:gsub("/", ".")
+    else
+      -- Fall back to just using filename
+      source = path_name:match("([^/]+).lua$") or "unknown"
     end
 
     -- cache the new value before returning it
@@ -130,11 +140,33 @@ local function caller(level, debug_info)
   end
 
   level = level + 1 -- this is to account for the fact by calling this function we are one level deeper
+
+  -- If we don't have a name, try to get it from a higher frame, but with depth control
   if debug_info.name == nil or debug_info.name == "" then
-    local name, source = caller(level, debug.getinfo(level, debug_query))
-    return name .. ".fn", source -- we add the indication that there is an anonymous function
+    -- Ensure source path exists to prevent errors
+    if not debug_info.source or type(debug_info.source) ~= "string" then
+      return "unknown", "unknown"
+    end
+
+    -- Try to get caller info with proper error handling
+    local ok, result = pcall(function()
+      local name, source = caller(level, debug.getinfo(level, debug_query), max_depth - 1)
+      return name, source
+    end)
+
+    if not ok then
+      return "error_fn", "error_source"
+    end
+
+    local name, source = unpack(result)
+    return name .. ".fn", source
   else
-    return debug_info.name, get_src(debug_info.source)
+    -- If we have source info, use it
+    if debug_info.source and type(debug_info.source) == "string" then
+      return debug_info.name, get_src(debug_info.source)
+    else
+      return debug_info.name, "unknown"
+    end
   end
 end
 
@@ -148,13 +180,26 @@ end
 -- Snacks.debug.log("Hello", { foo = "bar" }, 42)
 -- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
 -- ```
+
 function M.log(...)
   local level = 3 -- level 3 because we expect the caller to be a global function
-  local caller_fn, caller_src = caller(level, debug.getinfo(level, debug_query))
+
+  -- Use pcall to prevent errors in debug
+  local ok, result = pcall(function()
+    local caller_fn, caller_src = caller(level, debug.getinfo(level, debug_query), 10)
+    return caller_fn, caller_src
+  end)
+
+  if not ok then
+    caller_fn, caller_src = "error", "error"
+  else
+    caller_fn, caller_src = unpack(result)
+  end
+
   local file = M.debug_config.log_file or "./debug.log"
 
-  local ok, fd = pcall(io.open(file, "a+"))
-  if not ok or not fd then
+  local ok_fd, fd = pcall(io.open, file, "a+")
+  if not ok_fd or not fd then
     return
   end
 

@@ -5,6 +5,7 @@
 -- and implement the required functions.
 
 local M = {}
+local common = require("taskforge.lang.common")
 
 -- Module metadata (required)
 M.name = "template" -- Language name
@@ -24,11 +25,12 @@ M.comment_patterns = {
 
 -- Regular expressions for detecting comments (required)
 M.comment_regexes = {
-  line = "^%s*" .. vim.pesc(M.comment_patterns.line_start) .. "%s*(.-)%s*$", -- Line comment pattern
+  line = "^%s*" .. common.escape_pattern(M.comment_patterns.line_start) .. "%s*(.-)%s*$", -- Line comment pattern
   block_start = M.comment_patterns.block_start
-      and ("^%s*" .. vim.pesc(M.comment_patterns.block_start) .. "%s*(.-)%s*$")
+      and ("^%s*" .. common.escape_pattern(M.comment_patterns.block_start) .. "%s*(.-)%s*$")
     or nil, -- Block start pattern
-  block_end = M.comment_patterns.block_end and ("^%s*(.-)%s*" .. vim.pesc(M.comment_patterns.block_end) .. "%s*$")
+  block_end = M.comment_patterns.block_end
+      and ("^%s*(.-)%s*" .. common.escape_pattern(M.comment_patterns.block_end) .. "%s*$")
     or nil, -- Block end pattern
 }
 
@@ -41,16 +43,16 @@ function M.is_comment_string(line)
   end
 
   -- Check for line comment
-  if M.comment_patterns.line_start and line:match("^%s*" .. vim.pesc(M.comment_patterns.line_start)) then
+  if M.comment_patterns.line_start and line:match("^%s*" .. common.escape_pattern(M.comment_patterns.line_start)) then
     return true
   end
 
   -- Check for block comment
-  if M.comment_patterns.block_start and line:match(vim.pesc(M.comment_patterns.block_start)) then
+  if M.comment_patterns.block_start and line:match(common.escape_pattern(M.comment_patterns.block_start)) then
     return true
   end
 
-  if M.comment_patterns.block_end and line:match(vim.pesc(M.comment_patterns.block_end)) then
+  if M.comment_patterns.block_end and line:match(common.escape_pattern(M.comment_patterns.block_end)) then
     return true
   end
 
@@ -62,51 +64,9 @@ end
 -- @param tag_name string The tag to extract info for
 -- @return table|nil { tag = tag_name, description = description }
 function M.extract_tag_info(comment_text, tag_name)
-  if not comment_text or not tag_name then
-    return nil
-  end
-
-  -- Try to match "TAG: description"
-  local desc = comment_text:match(tag_name .. ":%s*(.+)")
-  if desc then
-    return {
-      tag = tag_name,
-      description = desc:gsub("%s+$", ""):gsub("^%s+", ""),
-    }
-  end
-
-  -- Try to match "TAG(meta): description"
-  desc = comment_text:match(tag_name .. "%([^)]*%):%s*(.+)")
-  if desc then
-    return {
-      tag = tag_name,
-      description = desc:gsub("%s+$", ""):gsub("^%s+", ""),
-    }
-  end
-
-  -- Try to match "TAG - description"
-  desc = comment_text:match(tag_name .. "%s*%-%s*(.+)")
-  if desc then
-    return {
-      tag = tag_name,
-      description = desc:gsub("%s+$", ""):gsub("^%s+", ""),
-    }
-  end
-
-  -- Try anything after the tag
-  desc = comment_text:match(tag_name .. "(.+)")
-  if desc then
-    -- Clean up the description
-    desc = desc:gsub("^[%s:%-]+", ""):gsub("%s+$", "")
-    if desc and desc ~= "" then
-      return {
-        tag = tag_name,
-        description = desc,
-      }
-    end
-  end
-
-  return nil
+  -- Template implementation uses common extraction logic
+  -- Override this in language-specific modules if needed
+  return common.extract_tag_info(comment_text, tag_name)
 end
 
 -- Detect if we're in a comment and what type (required)
@@ -235,15 +195,18 @@ function M.is_comment_start(line)
     return false, nil
   end
 
-  if M.comment_patterns.line_start and line:match("^%s*" .. vim.pesc(M.comment_patterns.line_start)) then
+  if M.comment_patterns.line_start and line:match("^%s*" .. common.escape_pattern(M.comment_patterns.line_start)) then
     return true, "line"
   end
 
-  if M.comment_patterns.block_start and line:match("^%s*" .. vim.pesc(M.comment_patterns.block_start)) then
+  if M.comment_patterns.block_start and line:match("^%s*" .. common.escape_pattern(M.comment_patterns.block_start)) then
     return true, "block_start"
   end
 
-  if M.comment_patterns.block_start_alt and line:match("^%s*" .. vim.pesc(M.comment_patterns.block_start_alt)) then
+  if
+    M.comment_patterns.block_start_alt
+    and line:match("^%s*" .. common.escape_pattern(M.comment_patterns.block_start_alt))
+  then
     return true, "block_start_alt"
   end
 
@@ -262,7 +225,7 @@ function M.is_comment_end(line, comment_type)
   if
     comment_type == "block_start"
     and M.comment_patterns.block_end
-    and line:match(vim.pesc(M.comment_patterns.block_end))
+    and line:match(common.escape_pattern(M.comment_patterns.block_end))
   then
     return true
   end
@@ -270,7 +233,7 @@ function M.is_comment_end(line, comment_type)
   if
     comment_type == "block_start_alt"
     and M.comment_patterns.block_end_alt
-    and line:match(vim.pesc(M.comment_patterns.block_end_alt))
+    and line:match(common.escape_pattern(M.comment_patterns.block_end_alt))
   then
     return true
   end
@@ -287,9 +250,11 @@ function M.add_uuid_to_comment(comment_text, uuid, filetype)
   local uuid_marker = " [task:" .. uuid .. "]"
 
   -- Insert before block comment end if present
-  if M.comment_patterns.block_end and comment_text:match(vim.pesc(M.comment_patterns.block_end) .. "%s*$") then
+  if
+    M.comment_patterns.block_end and comment_text:match(common.escape_pattern(M.comment_patterns.block_end) .. "%s*$")
+  then
     return comment_text:gsub(
-      vim.pesc(M.comment_patterns.block_end) .. "%s*$",
+      common.escape_pattern(M.comment_patterns.block_end) .. "%s*$",
       uuid_marker .. " " .. M.comment_patterns.block_end
     )
   end
@@ -305,7 +270,7 @@ end
 -- @return string Updated comment text
 function M.add_tag_to_comment(comment_text, tag, filetype)
   -- Check if the comment already has content
-  local content_pattern = "^(%s*" .. vim.pesc(M.comment_patterns.line_start) .. "%s*)(.*)$"
+  local content_pattern = "^(%s*" .. common.escape_pattern(M.comment_patterns.line_start) .. "%s*)(.*)$"
   local prefix, content = comment_text:match(content_pattern)
 
   if prefix then
@@ -328,9 +293,11 @@ end
 -- @return string Updated comment text
 function M.add_optout_marker(comment_text, filetype)
   -- Insert [notrack] before block comment end if present
-  if M.comment_patterns.block_end and comment_text:match(vim.pesc(M.comment_patterns.block_end) .. "%s*$") then
+  if
+    M.comment_patterns.block_end and comment_text:match(common.escape_pattern(M.comment_patterns.block_end) .. "%s*$")
+  then
     return comment_text:gsub(
-      vim.pesc(M.comment_patterns.block_end) .. "%s*$",
+      common.escape_pattern(M.comment_patterns.block_end) .. "%s*$",
       " [notrack] " .. M.comment_patterns.block_end
     )
   end

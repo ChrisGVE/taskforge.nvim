@@ -23,56 +23,86 @@ end
 function M.process(bufnr, initial_scan, force_scan)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Make sure buffer exists and is valid
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
+  -- Get buffer utilities for stack overflow prevention
+  local buffer_utils = require("taskforge.buffer_utils")
 
-  -- Check if language module supports this buffer
-  local lang = require("taskforge.lang")
-  if not lang.is_supported(bufnr) then
-    return
-  end
-
-  -- Get tags configuration
-  local cfg = config.get().tags
-  if not cfg or not cfg.enable then
-    return
-  end
-
-  -- Clear previous tag markers
-  M.clear_markers(bufnr)
-
-  -- Initialize tracking for this buffer if needed
-  core.initialize_buffer_tracking(bufnr)
-
-  -- Do an initial scan only if this is the first time seeing the buffer
-  -- or if force_scan is true (manual command)
-  if initial_scan or force_scan then
-    -- Find all untracked tags in the buffer
-    local untracked_tags = M.find_untracked_tags(bufnr)
-
-    -- Process tags in batch if there are any
-    if #untracked_tags > 0 then
-      -- Use new UI system for batch processing
-      debug.log("BUFFER", "Starting batch processing with UI system")
-      -- Defer the UI processing to avoid BufEnter autocmd issues
-      vim.schedule(function()
-        local ui = require("taskforge.ui")
-        ui.process_batch_tags(bufnr, untracked_tags)
-      end)
-      return
+  -- Process safely with a timeout to prevent stack overflow
+  return buffer_utils.process_safely(bufnr, function()
+    -- Make sure buffer exists and is valid
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return false, "Invalid buffer"
     end
-  end
 
-  -- Regular processing for tracked tags
-  M.process_tracked_tags(bufnr)
+    -- Check if language module supports this buffer
+    local lang = require("taskforge.lang")
+    if not lang.is_supported(bufnr) then
+      return false, "Language not supported"
+    end
 
-  -- Check for removed or modified tags
-  M.check_removed_tags(bufnr)
+    -- Get tags configuration
+    local cfg = config.get().tags
+    if not cfg or not cfg.enable then
+      return false, "Tags not enabled"
+    end
 
-  -- Mark buffer as processed
-  core.set_buffer_processed(bufnr)
+    -- Clear previous tag markers
+    M.clear_markers(bufnr)
+
+    -- Initialize tracking for this buffer if needed
+    core.initialize_buffer_tracking(bufnr)
+
+    -- Do an initial scan only if this is the first time seeing the buffer
+    -- or if force_scan is true (manual command)
+    if initial_scan or force_scan then
+      -- Find all untracked tags in the buffer with timeout protection
+      local find_success, untracked_tags = pcall(M.find_untracked_tags, bufnr)
+
+      if not find_success then
+        debug.log("BUFFER", "Error finding untracked tags", untracked_tags)
+        return false, "Error finding tags: " .. tostring(untracked_tags)
+      end
+
+      -- Process tags in batch if there are any
+      if untracked_tags and #untracked_tags > 0 then
+        -- Use new UI system for batch processing
+        debug.log("BUFFER", "Starting batch processing with UI system")
+
+        -- Defer the UI processing to avoid BufEnter autocmd issues
+        vim.defer_fn(function()
+          -- Use pcall to handle any errors
+          pcall(function()
+            local tracker = require("taskforge.tracker")
+            if tracker and tracker.process_batch then
+              tracker.process_batch(bufnr, untracked_tags)
+            end
+          end)
+        end, 10) -- Small delay
+
+        return true, "Batch processing scheduled"
+      end
+    end
+
+    -- Protect regular processing with pcall
+    local process_success, process_result = pcall(function()
+      -- Regular processing for tracked tags
+      M.process_tracked_tags(bufnr)
+
+      -- Check for removed or modified tags
+      M.check_removed_tags(bufnr)
+
+      -- Mark buffer as processed
+      core.set_buffer_processed(bufnr)
+
+      return "Regular processing complete"
+    end)
+
+    if not process_success then
+      debug.log("BUFFER", "Error in regular processing", process_result)
+      return false, "Error in processing: " .. tostring(process_result)
+    end
+
+    return true, process_result
+  end)
 end
 
 -- Clear all tag markers in a buffer
