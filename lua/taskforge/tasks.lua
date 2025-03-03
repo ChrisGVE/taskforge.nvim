@@ -6,6 +6,7 @@ local M = {}
 local Job = require("plenary.job")
 local utils = require("taskforge.utils")
 local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 function M.setup()
   M._cache = {
@@ -27,7 +28,7 @@ function M.get_dashboard_tasks()
   local cfg = config.get()
   if cfg.debug and cfg.debug.enable then
     local count = M._cache.tasks and #M._cache.tasks or 0
-    utils.debug_log("TASKS", "Retrieved " .. count .. " tasks from cache")
+    debug.log("TASKS", "Retrieved " .. count .. " tasks from cache")
   end
 
   -- Split into project/other tasks
@@ -73,7 +74,7 @@ end
 
 -- Configure Taskwarrior settings
 function M.configure()
-  utils.debug_log("TASKS", "Configuring taskwarrior")
+  debug.log("TASKS", "Configuring taskwarrior")
 
   local job = require("plenary.job")
   local cmds = {
@@ -89,7 +90,7 @@ function M.configure()
         args = { cmd[2], cmd[3], cmd[4] },
         on_exit = function(j, return_code)
           if return_code ~= 0 then
-            utils.debug_log("TASKS", "Failed to configure taskwarrior", {
+            debug.log("TASKS", "Failed to configure taskwarrior", {
               cmd = cmd[2] .. " " .. cmd[3] .. " " .. cmd[4],
               error = table.concat(j:stderr_result(), "\n"),
             })
@@ -160,7 +161,7 @@ end
 function M.refresh_cache()
   -- Check if taskwarrior is installed
   if vim.fn.executable("task") ~= 1 then
-    utils.debug_log("TASKS", "Taskwarrior is not installed or not in PATH")
+    debug.log("TASKS", "Taskwarrior is not installed or not in PATH")
     return
   end
 
@@ -179,7 +180,7 @@ function M.refresh_cache()
     end,
     on_exit = function(_, code)
       if code ~= 0 then
-        utils.debug_log("TASKS", "Task export failed", table.concat(error_output, "\n"))
+        debug.log("TASKS", "Task export failed", table.concat(error_output, "\n"))
         return
       end
 
@@ -191,7 +192,7 @@ function M.refresh_cache()
           valid = true,
           timestamp = os.time(),
         }
-        utils.debug_log("TASKS", "No tasks found in taskwarrior")
+        debug.log("TASKS", "No tasks found in taskwarrior")
         return
       end
 
@@ -202,9 +203,9 @@ function M.refresh_cache()
           valid = true,
           timestamp = os.time(),
         }
-        utils.debug_log("TASKS", "Refreshed task cache", #tasks)
+        debug.log("TASKS", "Refreshed task cache", #tasks)
       else
-        utils.debug_log("TASKS", "Failed to parse task data", tasks)
+        debug.log("TASKS", "Failed to parse task data", tasks)
       end
     end,
   }):start() -- Use start() instead of sync() to make it asynchronous
@@ -235,7 +236,7 @@ function M.create(description, opts, callback)
 
   -- No longer adding annotation during task creation
 
-  utils.debug_log("TASKS", "Creating task", {
+  debug.log("TASKS", "Creating task", {
     description = description,
     args = args,
   })
@@ -261,7 +262,7 @@ function M.create(description, opts, callback)
           end
         end
 
-        utils.debug_log("TASKS", "Task created", { uuid = uuid, description = description })
+        debug.log("TASKS", "Task created", { uuid = uuid, description = description })
 
         -- Add annotation separately if file and line are provided
         if uuid and opts.file and opts.line then
@@ -293,7 +294,7 @@ function M.create(description, opts, callback)
         end
       else
         local err = table.concat(j:stderr_result(), "\n")
-        utils.debug_log("TASKS", "Failed to create task", err)
+        debug.log("TASKS", "Failed to create task", err)
         utils.notify("Failed to create task: " .. err, vim.log.levels.ERROR)
 
         if callback then
@@ -313,20 +314,20 @@ function M.open_uri(uri)
     vim.cmd("edit " .. path)
     local lnum = tonumber(lnum_str) or 1 -- Ensure we have a valid integer
     vim.fn.cursor(lnum, 1)
-    utils.debug_log("TASKS", "Opened file from URI", path .. ":" .. lnum_str)
+    debug.log("TASKS", "Opened file from URI", path .. ":" .. lnum_str)
   else
-    utils.debug_log("TASKS", "Invalid URI format", uri)
+    debug.log("TASKS", "Invalid URI format", uri)
   end
 end
 
 -- Mark a task as done
 function M.done(uuid)
   if not uuid then
-    utils.debug_log("TASKS", "No task UUID provided")
+    debug.log("TASKS", "No task UUID provided")
     return
   end
 
-  utils.debug_log("TASKS", "Marking task as done", uuid)
+  debug.log("TASKS", "Marking task as done", uuid)
 
   Job:new({
     command = "task",
@@ -347,7 +348,7 @@ function M.done(uuid)
         utils.notify("Task marked as done")
       else
         local err = table.concat(j:stderr_result(), "\n")
-        utils.debug_log("TASKS", "Failed to mark task as done", err)
+        debug.log("TASKS", "Failed to mark task as done", err)
         utils.notify("Failed to mark task as done: " .. err, vim.log.levels.ERROR)
       end
     end,
@@ -357,11 +358,11 @@ end
 -- Delete a task
 function M.delete(uuid)
   if not uuid then
-    utils.debug_log("TASKS", "No task UUID provided")
+    debug.log("TASKS", "No task UUID provided")
     return
   end
 
-  utils.debug_log("TASKS", "Deleting task", uuid)
+  debug.log("TASKS", "Deleting task", uuid)
 
   Job:new({
     command = "task",
@@ -379,7 +380,7 @@ function M.delete(uuid)
         utils.notify("Task deleted")
       else
         local err = table.concat(j:stderr_result(), "\n")
-        utils.debug_log("TASKS", "Failed to delete task", err)
+        debug.log("TASKS", "Failed to delete task", err)
         utils.notify("Failed to delete task: " .. err, vim.log.levels.ERROR)
       end
     end,
@@ -389,11 +390,11 @@ end
 -- Add annotation to a task
 function M.annotate(uuid, annotation)
   if not uuid or not annotation then
-    utils.debug_log("TASKS", "UUID and annotation required")
+    debug.log("TASKS", "UUID and annotation required")
     return
   end
 
-  utils.debug_log("TASKS", "Adding annotation", { uuid = uuid, annotation = annotation })
+  debug.log("TASKS", "Adding annotation", { uuid = uuid, annotation = annotation })
 
   Job:new({
     command = "task",
@@ -404,7 +405,7 @@ function M.annotate(uuid, annotation)
         utils.notify("Annotation added")
       else
         local err = table.concat(j:stderr_result(), "\n")
-        utils.debug_log("TASKS", "Failed to add annotation", err)
+        debug.log("TASKS", "Failed to add annotation", err)
         utils.notify("Failed to add annotation: " .. err, vim.log.levels.ERROR)
       end
     end,
@@ -413,7 +414,7 @@ end
 
 -- Handle file rename
 function M.handle_file_rename(old_path, new_path)
-  utils.debug_log("TASKS", "Handling file rename", { old = old_path, new = new_path })
+  debug.log("TASKS", "Handling file rename", { old = old_path, new = new_path })
 
   -- Get tasks with annotations
   local tasks_with_annotations = M.list_with_annotations()
@@ -439,7 +440,7 @@ end
 
 -- Modify an annotation
 function M.modify_annotation(uuid, index, new_text)
-  utils.debug_log("TASKS", "Modifying annotation", { uuid = uuid, index = index, new_text = new_text })
+  debug.log("TASKS", "Modifying annotation", { uuid = uuid, index = index, new_text = new_text })
 
   Job:new({
     command = "task",
@@ -453,7 +454,7 @@ function M.modify_annotation(uuid, index, new_text)
         end)
       else
         local err = table.concat(j:stderr_result(), "\n")
-        utils.debug_log("TASKS", "Failed to remove annotation", err)
+        debug.log("TASKS", "Failed to remove annotation", err)
       end
     end,
   }):start()
@@ -461,7 +462,7 @@ end
 
 -- Jump to task location in file
 function M.jump_to_task(uuid)
-  utils.debug_log("TASKS", "Jumping to task", uuid)
+  debug.log("TASKS", "Jumping to task", uuid)
 
   -- Let tracker handle this
   local tracker = require("taskforge.tracker")

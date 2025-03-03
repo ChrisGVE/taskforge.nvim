@@ -82,51 +82,57 @@ function M.setup(user_opts)
     return
   end
 
-  -- Initialize configuration first
-  M._config = require("taskforge.config")
-  M._config.set(user_opts or {})
+  local cfg = nil
 
-  -- Get config for debug setup
-  local cfg = M._config.get()
+  -- Wrap everything in pcall to catch errors
+  local ok, err = pcall(function()
+    -- Initialize configuration first
+    M._config = require("taskforge.config")
+    M._config.set(user_opts or {})
 
-  local utils = require("taskforge.utils")
+    -- Get config for debug setup
+    cfg = M._config.get()
 
-  -- Setup debug module if enabled
-  if cfg.debug and cfg.debug.enable then
-    -- Initialize our own debug module first
-    local debug_module = require("taskforge.debug")
-    debug_module.setup(cfg.debug)
-
-    -- Set default log file if not specified
-    if not cfg.debug.log_file then
-      cfg.debug.log_file = vim.fn.stdpath("cache") .. "/taskforge_debug.log"
-      utils.notify("Debug logs: " .. cfg.debug.log_file, vim.log.levels.INFO)
+    -- Setup debug module if enabled
+    if cfg.debug and cfg.debug.enable then
+      local debug_ok, debug_module = pcall(require, "taskforge.debug")
+      if debug_ok then
+        debug_module.setup(cfg.debug)
+        vim.notify("Debug module initialized", vim.log.levels.INFO)
+      else
+        vim.notify("Failed to load debug module: " .. tostring(debug_module), vim.log.levels.ERROR)
+      end
     end
-  else
-    -- Enable basic debug logging for now
-    cfg.debug = cfg.debug or {}
-    cfg.debug.enable = true
-    cfg.debug.log_file = vim.fn.stdpath("cache") .. "/taskforge_debug.log"
-    utils.notify("Enabled debug logs: " .. cfg.debug.log_file, vim.log.levels.INFO)
-  end
 
-  -- Initialize core modules and system modules in the correct order to prevent circular dependencies
-  require("taskforge.project").setup()
-  require("taskforge.tasks").setup()
+    -- Initialize core modules in order
+    local project_ok, project = pcall(require, "taskforge.project")
+    if project_ok then
+      project.setup()
+    else
+      vim.notify("Failed to initialize project module: " .. tostring(project), vim.log.levels.ERROR)
+    end
+    require("taskforge.tasks").setup()
 
-  -- Initialize UI modules
-  if M._available_deps.taskwarrior then
-    -- Configure taskwarrior
-    require("taskforge.tasks").configure()
+    -- Initialize UI modules
+    if M._available_deps.taskwarrior then
+      -- Configure taskwarrior
+      require("taskforge.tasks").configure()
 
-    -- Initialize tracker module
-    require("taskforge.tracker").setup()
+      -- Initialize tracker module
+      require("taskforge.tracker").setup()
 
-    -- Initialize UI module
-    require("taskforge.ui").setup()
+      -- Initialize UI module
+      require("taskforge.ui").setup()
 
-    -- Set up commands
-    require("taskforge.commands").register()
+      -- Set up commands
+      require("taskforge.commands").register()
+    end
+  end)
+
+  -- Report any errors
+  if not ok then
+    vim.notify("Failed to initialize taskforge: " .. tostring(err), vim.log.levels.ERROR)
+    return
   end
 
   -- Set initialization flag
@@ -134,7 +140,7 @@ function M.setup(user_opts)
 
   -- Log initialization status
   if cfg.debug and cfg.debug.enable then
-    utils.notify("Taskforge initialized successfully", vim.log.levels.INFO)
+    vim.notify("Taskforge initialized successfully", vim.log.levels.INFO)
   end
 end
 

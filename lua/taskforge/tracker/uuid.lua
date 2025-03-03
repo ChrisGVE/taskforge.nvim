@@ -4,6 +4,7 @@
 local M = {}
 local core = require("taskforge.tracker.core")
 local utils = require("taskforge.utils")
+local debug = require("taskforge.debug")
 
 -- Constants
 M.constants = {
@@ -17,7 +18,7 @@ M.constants = {
 function M.handle_modified_uuid(bufnr, lnum, line, original_uuid)
   local current_uuid = line:match(M.constants.uuid_pattern)
 
-  utils.debug_log("UUID", "UUID modified", {
+  debug.log("UUID", "UUID modified", {
     original = original_uuid,
     current = current_uuid,
     line_num = lnum + 1,
@@ -72,13 +73,13 @@ end
 function M.link_uuid_to_comment(bufnr, lnum, uuid)
   -- Check if buffer and line are valid
   if not vim.api.nvim_buf_is_valid(bufnr) then
-    utils.debug_log("UUID", "Buffer no longer valid", bufnr)
+    debug.log("UUID", "Buffer no longer valid", bufnr)
     return false
   end
 
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   if lnum >= line_count then
-    utils.debug_log("UUID", "Line no longer exists", lnum)
+    debug.log("UUID", "Line no longer exists", lnum)
     return false
   end
 
@@ -87,7 +88,7 @@ function M.link_uuid_to_comment(bufnr, lnum, uuid)
 
   -- Check if UUID already exists
   if line:match(M.constants.uuid_pattern) then
-    utils.debug_log("UUID", "UUID already exists in line", uuid)
+    debug.log("UUID", "UUID already exists in line", uuid)
     return false
   end
 
@@ -121,7 +122,7 @@ function M.link_uuid_to_comment(bufnr, lnum, uuid)
     if success then
       -- Update task location in cache
       core.update_task_location(uuid, vim.api.nvim_buf_get_name(bufnr), lnum + 1)
-      utils.debug_log("UUID", "Successfully linked UUID to comment", uuid)
+      debug.log("UUID", "Successfully linked UUID to comment", uuid)
       return true
     end
   end
@@ -132,7 +133,7 @@ function M.link_uuid_to_comment(bufnr, lnum, uuid)
 
   -- Update task location in cache
   core.update_task_location(uuid, vim.api.nvim_buf_get_name(bufnr), lnum + 1)
-  utils.debug_log("UUID", "Linked UUID to comment (fallback method)", uuid)
+  debug.log("UUID", "Linked UUID to comment (fallback method)", uuid)
 
   return true
 end

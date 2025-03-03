@@ -3,6 +3,8 @@
 
 local M = {}
 
+local debug = require("taskforge.debug")
+
 -- Cache of loaded language modules
 local language_cache = {}
 
@@ -36,8 +38,7 @@ function M.is_supported(bufnr)
   local bufname = vim.api.nvim_buf_get_name(bufnr)
 
   -- Debug log the buffer
-  local utils = require("taskforge.utils")
-  utils.debug_log("LANG", "Checking buffer support", {
+  debug.log("LANG", "Checking buffer support", {
     buffer = bufnr,
     name = bufname,
     filetype = ft,
@@ -45,7 +46,7 @@ function M.is_supported(bufnr)
 
   -- Skip special buffer types
   if vim.bo[bufnr].buftype ~= "" then
-    utils.debug_log("LANG", "Skipping special buffer type", vim.bo[bufnr].buftype)
+    debug.log("LANG", "Skipping special buffer type", vim.bo[bufnr].buftype)
     return false
   end
 
@@ -61,7 +62,7 @@ function M.is_supported(bufnr)
 
   for _, v in ipairs(unsupported) do
     if ft == v then
-      utils.debug_log("LANG", "Skipping unsupported filetype", ft)
+      debug.log("LANG", "Skipping unsupported filetype", ft)
       return false
     end
   end
@@ -69,11 +70,11 @@ function M.is_supported(bufnr)
   -- Special case for dashboard and snacks_dashboard filetypes
   -- Skip actual dashboard buffers but NOT files named dashboard.lua
   if (ft == "dashboard" or ft == "snacks_dashboard") and not bufname:match("dashboard%.lua$") then
-    utils.debug_log("LANG", "Skipping dashboard buffer (not dashboard.lua)", ft)
+    debug.log("LANG", "Skipping dashboard buffer (not dashboard.lua)", ft)
     return false
   end
 
-  utils.debug_log("LANG", "Buffer is supported")
+  debug.log("LANG", "Buffer is supported")
   return true
 end
 

@@ -7,6 +7,7 @@ local utils = require("taskforge.utils")
 local ui_utils = require("taskforge.ui.utils")
 local dialog = require("taskforge.ui.dialog")
 local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 -- Module state for batch processing
 local state = {
@@ -26,7 +27,7 @@ local state = {
 -- @param bufnr number Buffer number
 -- @param candidates table Array of tag candidates
 function M.process_tags(bufnr, candidates)
-  utils.debug_log("BATCH", "Processing " .. #candidates .. " tag candidates")
+  debug.log("BATCH", "Processing " .. #candidates .. " tag candidates")
 
   -- Use vim.notify for visibility during debugging
   vim.notify("Taskforge: Processing " .. #candidates .. " tags", vim.log.levels.INFO)
@@ -127,7 +128,7 @@ function M.show_dialog(options)
     return
   end
 
-  utils.debug_log("BATCH", "Opening batch dialog", options.title or "")
+  debug.log("BATCH", "Opening batch dialog", options.title or "")
 
   -- Set up internal state
   state.active = true
@@ -427,10 +428,10 @@ function M.show_dialog(options)
     -- Events
     on_close = function(dlg)
       if not already_processing then
-        utils.debug_log("BATCH", "Dialog closed via event")
+        debug.log("BATCH", "Dialog closed via event")
         M.cleanup()
       else
-        utils.debug_log("BATCH", "Ignoring close during initialization")
+        debug.log("BATCH", "Ignoring close during initialization")
       end
     end,
 
@@ -456,7 +457,7 @@ function M.show_dialog(options)
     already_processing = false
 
     if batch_dialog.popup and vim.api.nvim_win_is_valid(batch_dialog.popup.winid) then
-      utils.debug_log("BATCH", "Setting initial cursor position and focus")
+      debug.log("BATCH", "Setting initial cursor position and focus")
 
       -- Force focus to the dialog window
       vim.api.nvim_set_current_win(batch_dialog.popup.winid)
@@ -469,7 +470,7 @@ function M.show_dialog(options)
         M.highlight_item_source(0)
       end
     else
-      utils.debug_log("BATCH", "Dialog invalid after initialization")
+      debug.log("BATCH", "Dialog invalid after initialization")
     end
   end)
 
@@ -826,7 +827,7 @@ function M.cleanup()
   state.source_bufnr = nil
   state.highlight_namespace = nil
 
-  utils.debug_log("BATCH", "Batch dialog resources cleaned up")
+  debug.log("BATCH", "Batch dialog resources cleaned up")
 end
 
 -- Show a simple selection UI fallback when NUI is not available

@@ -5,6 +5,7 @@ local M = {}
 local core = require("taskforge.tracker.core")
 local utils = require("taskforge.utils")
 local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 -- Process a tracked comment (with UUID)
 function M.process_tracked_comment(bufnr, lnum, comment_text, uuid)
@@ -21,7 +22,7 @@ function M.process_tracked_comment(bufnr, lnum, comment_text, uuid)
       core.register_task(uuid, vim.api.nvim_buf_get_name(bufnr), lnum + 1, task.description, task.status)
     else
       -- Task might have been deleted
-      utils.debug_log("TAGS", "UUID doesn't match any task", uuid)
+      debug.log("TAGS", "UUID doesn't match any task", uuid)
 
       -- Warn user and offer to remove the UUID
       utils.confirm_yesno("Task " .. uuid .. " no longer exists. Remove UUID from comment?", function(choice)
@@ -103,7 +104,7 @@ function M.process_tag(bufnr, lnum, tag, def, node, no_create)
   local info = lang.extract_tag_info(comment_text, tag)
   local desc = info and info.description or "No description"
 
-  utils.debug_log("TAGS", "Extracted description", { tag = tag, description = desc })
+  debug.log("TAGS", "Extracted description", { tag = tag, description = desc })
 
   -- Store metadata
   local file_path = vim.api.nvim_buf_get_name(bufnr)
@@ -146,7 +147,7 @@ function M.process_tag(bufnr, lnum, tag, def, node, no_create)
 
   -- Create task based on configuration
   if def.create == "auto" then
-    utils.debug_log("TAGS", "Auto-creating task for tag", tag)
+    debug.log("TAGS", "Auto-creating task for tag", tag)
     M.create_task_for_tag(bufnr, lnum, task_info)
   elseif def.create == "ask" then
     -- Only ask if explicitly triggered by user action (not during auto-scanning)
@@ -189,7 +190,7 @@ end
 
 -- Handle a removed UUID
 function M.handle_removed_uuid(bufnr, lnum, uuid, tag_def)
-  utils.debug_log("TAGS", "Tag with UUID removed", uuid)
+  debug.log("TAGS", "Tag with UUID removed", uuid)
 
   -- Find the tag definition
   local cfg = config.get().tags
@@ -301,13 +302,13 @@ function M.handle_task_status_change(uuid, new_status)
               vim.api.nvim_buf_set_lines(buf, task.line - 1, task.line, false, { new_line })
             end
 
-            utils.debug_log("TAGS", "Removed tag from completed task", uuid)
+            debug.log("TAGS", "Removed tag from completed task", uuid)
           else
             -- Mark it as DONE instead
             local new_line = line:gsub("([A-Z]+):", "DONE:")
             vim.api.nvim_buf_set_lines(buf, task.line - 1, task.line, false, { new_line })
 
-            utils.debug_log("TAGS", "Updated tag to DONE for completed task", uuid)
+            debug.log("TAGS", "Updated tag to DONE for completed task", uuid)
           end
         end
       end

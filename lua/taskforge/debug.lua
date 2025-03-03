@@ -152,22 +152,27 @@ function M.log(...)
   local level = 3 -- level 3 because we expect the caller to be a global function
   local caller_fn, caller_src = caller(level, debug.getinfo(level, debug_query))
   local file = M.debug_config.log_file or "./debug.log"
-  local fd = io.open(file, "a+")
-  if not fd then
-    error(("Could not open file %s for writing"):format(file))
+
+  local ok, fd = pcall(io.open(file, "a+"))
+  if not ok or not fd then
+    return
   end
+
   local c = select("#", ...)
   local parts = {} ---@type string[]
   for i = 1, c do
     local v = select(i, ...)
     parts[i] = type(v) == "string" and v or vim.inspect(v)
   end
+
   local msg = " | " .. caller_src .. "." .. caller_fn
   local arg = table.concat(parts, " ")
   if #arg ~= 0 then
     msg = msg .. " | " .. arg
   end
+
   msg = #msg < (M.debug_config.log_max_len or 120) and msg:gsub("%s+", " ") or msg
+
   fd:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg)
   fd:write("\n")
   fd:close()

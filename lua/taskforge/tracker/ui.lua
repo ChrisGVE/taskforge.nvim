@@ -6,6 +6,7 @@ local M = {}
 local utils = require("taskforge.utils")
 local core = require("taskforge.tracker.core")
 local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 -- Namespace for batch tag processing
 -- This is a state store specific to this module
@@ -981,7 +982,7 @@ function M.close_dialog()
   batch.data_items = {}
   batch.source_bufnr = nil
 
-  utils.debug_log("UI", "Dialog closed")
+  debug.log("UI", "Dialog closed")
 end
 
 -- Simple selection UI fallback for when NUI is not available

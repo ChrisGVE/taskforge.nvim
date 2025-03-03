@@ -4,7 +4,7 @@
 local M = {}
 local utils = require("taskforge.utils")
 local core = require("taskforge.tracker.core")
-local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 -- Setup formatter integration
 function M.setup()
@@ -107,7 +107,7 @@ function M._save_tag_state(bufnr)
 
   -- Store in buffer local variable
   vim.api.nvim_buf_set_var(bufnr, "taskforge_tags_pre_format", uuids)
-  utils.debug_log("FORMATTER", "Saved pre-format state", #uuids)
+  debug.log("FORMATTER", "Saved pre-format state", #uuids)
 end
 
 -- Repair UUIDs that may have been broken by formatting
@@ -119,7 +119,7 @@ function M._repair_uuids(bufnr)
   -- Check if we have pre-format state
   local has_state, uuids = pcall(vim.api.nvim_buf_get_var, bufnr, "taskforge_tags_pre_format")
   if has_state and uuids and #uuids > 0 then
-    utils.debug_log("FORMATTER", "Checking UUIDs after formatting", #uuids)
+    debug.log("FORMATTER", "Checking UUIDs after formatting", #uuids)
   else
     -- No pre-format state, try to repair based on file path
     uuids = {}

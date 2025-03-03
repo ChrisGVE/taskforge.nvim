@@ -240,13 +240,10 @@ function M.set(user_opts)
   if not M._settings then
     M._settings = vim.deepcopy(M._defaults)
   end
-  M._settings = vim.tbl_deep_extend("force", M._settings, user_opts or {})
 
-  -- Validate configuration
-  -- local ok, err = pcall(M._validate, M._settings)
-  -- if not ok then
-  --   vim.notify("Invalid Taskforge config: " .. err, vim.log.levels.ERROR)
-  -- end
+  if user_opts then
+    M._settings = vim.tbl_deep_extend("force", M._settings, user_opts or {})
+  end
 end
 
 function M._validate(settings)
@@ -269,7 +266,11 @@ function M._validate(settings)
 end
 
 function M.get()
-  return M._settings or M._defaults
+  -- Ensure we always return something valid
+  if not M._settings then
+    return M._defaults
+  end
+  return M._settings
 end
 
 return M

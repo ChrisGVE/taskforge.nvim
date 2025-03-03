@@ -6,6 +6,7 @@ local M = {}
 local uv = vim.uv or vim.loop
 local config = require("taskforge.config")
 local utils = require("taskforge.utils")
+local debug = require("taskforge.debug")
 
 function M.setup()
   M.cache = {
@@ -62,20 +63,20 @@ function M.detect()
     if cfg.detection_methods[method] then
       root = M["_detect_" .. method .. "_root"]()
       if root and not M._is_excluded(root) then
-        utils.debug_log("PROJECT", "Detected project root using " .. method, root)
+        debug.log("PROJECT", "Detected project root using " .. method, root)
         break
       end
     end
   end
 
   if not root then
-    utils.debug_log("PROJECT", "Using default project", cfg.default_project)
+    debug.log("PROJECT", "Using default project", cfg.default_project)
     return cfg.default_project
   end
 
   -- Extract project name based on configuration
   local project_name = M._format_project_name(root)
-  utils.debug_log("PROJECT", "Final project name", project_name)
+  debug.log("PROJECT", "Final project name", project_name)
   return project_name
 end
 
@@ -108,7 +109,7 @@ function M._detect_vcs_root()
       local marker_path = path .. "/" .. marker
       local stat = uv.fs_stat(marker_path)
       if stat then
-        utils.debug_log("PROJECT", "Found VCS marker", marker_path)
+        debug.log("PROJECT", "Found VCS marker", marker_path)
         return path
       end
     end
@@ -137,13 +138,13 @@ function M._detect_pattern_root()
       local pattern_path = path .. "/" .. pattern
       local stat = uv.fs_stat(pattern_path)
       if stat then
-        utils.debug_log("PROJECT", "Found pattern", pattern_path)
+        debug.log("PROJECT", "Found pattern", pattern_path)
         -- If this is a file, extract project name from filename
         if stat.type == "file" and not vim.endswith(pattern, "/") then
           -- Handle .csproj, .xcodeproj as special cases
           if vim.endswith(pattern, ".csproj") or vim.endswith(pattern, ".xcodeproj") then
             local proj_name = vim.fn.fnamemodify(pattern, ":r")
-            utils.debug_log("PROJECT", "Extracted project name from file", proj_name)
+            debug.log("PROJECT", "Extracted project name from file", proj_name)
             -- Return with format: path|projectname
             return path .. "|" .. proj_name
           end
@@ -178,7 +179,7 @@ function M._detect_json_root()
       local stat = uv.fs_stat(json_path)
 
       if stat and stat.type == "file" then
-        utils.debug_log("PROJECT", "Found JSON file", json_path)
+        debug.log("PROJECT", "Found JSON file", json_path)
         -- Try to read and parse the JSON file
         local content = utils.read_file(json_path)
         if content then
@@ -187,7 +188,7 @@ function M._detect_json_root()
             -- Extract project name from JSON based on configured tags
             local project_name = M._extract_name_from_json(json_data, cfg.json_tags)
             if project_name then
-              utils.debug_log("PROJECT", "Extracted project name from JSON", project_name)
+              debug.log("PROJECT", "Extracted project name from JSON", project_name)
               return path .. "|" .. project_name
             end
           end
@@ -356,7 +357,7 @@ function M._setup_lsp_rename_handler()
         local old_path = vim.uri_to_fname(old_uri)
         local new_path = vim.uri_to_fname(new_uri)
 
-        utils.debug_log("PROJECT", "File renamed", { old = old_path, new = new_path })
+        debug.log("PROJECT", "File renamed", { old = old_path, new = new_path })
 
         -- Update our file to project cache
         if M.cache.file_to_project[old_path] then

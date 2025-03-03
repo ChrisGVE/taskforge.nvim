@@ -5,6 +5,7 @@ local M = {}
 local utils = require("taskforge.utils")
 local core = require("taskforge.tracker.core")
 local config = require("taskforge.config")
+local debug = require("taskforge.debug")
 
 -- Namespace for buffer extmarks
 local ns = nil
@@ -54,7 +55,7 @@ function M.process(bufnr, initial_scan, force_scan)
     -- Process tags in batch if there are any
     if #untracked_tags > 0 then
       -- Use new UI system for batch processing
-      utils.debug_log("BUFFER", "Starting batch processing with UI system")
+      debug.log("BUFFER", "Starting batch processing with UI system")
       -- Defer the UI processing to avoid BufEnter autocmd issues
       vim.schedule(function()
         local ui = require("taskforge.ui")
@@ -105,20 +106,20 @@ function M._find_nodes_with_treesitter(bufnr)
   -- Get parser for buffer
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
   if not ok or not parser then
-    utils.debug_log("BUFFER", "No parser available for buffer", bufnr)
+    debug.log("BUFFER", "No parser available for buffer", bufnr)
     return {}
   end
 
   -- Parse buffer
   local tree = parser:parse()[1]
   if not tree then
-    utils.debug_log("BUFFER", "Failed to parse buffer", bufnr)
+    debug.log("BUFFER", "Failed to parse buffer", bufnr)
     return {}
   end
 
   local root = tree:root()
   if not root then
-    utils.debug_log("BUFFER", "No root node found", bufnr)
+    debug.log("BUFFER", "No root node found", bufnr)
     return {}
   end
 
@@ -138,7 +139,7 @@ function M._find_nodes_with_treesitter(bufnr)
     -- Try a more generic approach if the specific comment query fails
     ok, query = pcall(vim.treesitter.query.parse, parser:lang(), "(comment) @comment")
     if not ok or not query then
-      utils.debug_log("BUFFER", "Could not create comment query for buffer", bufnr)
+      debug.log("BUFFER", "Could not create comment query for buffer", bufnr)
       return {}
     end
   end
@@ -154,7 +155,7 @@ function M._find_nodes_with_treesitter(bufnr)
   end)
 
   if not iter_ok then
-    utils.debug_log("BUFFER", "Error iterating over comment nodes", bufnr)
+    debug.log("BUFFER", "Error iterating over comment nodes", bufnr)
     return {}
   end
 
@@ -168,16 +169,16 @@ function M.find_untracked_tags(bufnr)
 
   -- Get comment nodes - debug the result
   local comment_nodes = M.find_comment_nodes(bufnr)
-  utils.debug_log("BUFFER", "Found " .. #comment_nodes .. " comments in buffer")
+  debug.log("BUFFER", "Found " .. #comment_nodes .. " comments in buffer")
 
   -- Get buffer name for debugging
   local bufname = vim.api.nvim_buf_get_name(bufnr)
-  utils.debug_log("BUFFER", "Processing buffer", bufname)
+  debug.log("BUFFER", "Processing buffer", bufname)
 
   -- Add direct debug for TODO tags in buffer
   local content = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
   if content:match("TODO") then
-    utils.debug_log("BUFFER", "Buffer contains TODO, found with direct match")
+    debug.log("BUFFER", "Buffer contains TODO, found with direct match")
   end
 
   for _, node in ipairs(comment_nodes) do
@@ -185,11 +186,11 @@ function M.find_untracked_tags(bufnr)
     local start_row, _, end_row, _ = node:range()
     local comment_text = vim.treesitter.get_node_text(node, bufnr)
 
-    utils.debug_log("BUFFER", "Comment at line " .. (start_row + 1), comment_text:sub(1, 50))
+    debug.log("BUFFER", "Comment at line " .. (start_row + 1), comment_text:sub(1, 50))
 
     -- Skip if already has UUID or opted out
     if comment_text:match(core.constants.uuid_pattern) or comment_text:match(core.constants.optout_pattern) then
-      utils.debug_log("BUFFER", "Comment already has UUID or opted out - skipping")
+      debug.log("BUFFER", "Comment already has UUID or opted out - skipping")
       goto continue
     end
 
@@ -204,7 +205,7 @@ function M.find_untracked_tags(bufnr)
       -- Look for any matching tag
       for _, tag_name in ipairs(tags_to_check) do
         if comment_text:match(tag_name) then
-          utils.debug_log("BUFFER", "Found tag " .. tag_name .. " in comment")
+          debug.log("BUFFER", "Found tag " .. tag_name .. " in comment")
 
           -- Extract tag info using language module
           local lang = require("taskforge.lang").get_for_buffer(bufnr)
@@ -229,7 +230,7 @@ function M.find_untracked_tags(bufnr)
     ::continue::
   end
 
-  utils.debug_log("BUFFER", "Found " .. #untracked_tags .. " untracked tags")
+  debug.log("BUFFER", "Found " .. #untracked_tags .. " untracked tags")
   return untracked_tags
 end
 

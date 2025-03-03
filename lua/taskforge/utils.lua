@@ -12,6 +12,8 @@ Purpose:
 
 local M = {} -- IMPORTANT: This must be at the top!
 
+local debug = require("taskforge.debug")
+
 ---Reads the entire contents of a file
 ---@param path string Path to the file
 ---@return string|nil content File contents or nil if file cannot be opened
@@ -245,65 +247,13 @@ function M.sort_by_column(tasks, column, order)
 end
 
 -- Debug functions
--- Write to the debug log file
-function M.debug_log(module, message, data)
-  -- Use pcall to avoid errors when config isn't loaded yet
-  local cfg = {}
-  local ok, config_module = pcall(require, "taskforge.config")
-  if ok then
-    cfg = config_module.get()
-  else
-    vim.notify("Debug_log: could not get taskforge.config", vim.log.levels.WARN)
-    return -- Early return to avoid errors
-  end
-
-  if not (cfg.debug and cfg.debug.enable) then
-    return
-  end
-
-  local msg = string.format("[%s] %s", module, message)
-
-  -- Add data inspection if provided
-  if data ~= nil then
-    if type(data) == "string" then
-      msg = msg .. " " .. data
-    else
-      msg = msg .. " " .. vim.inspect(data)
-    end
-  end
-
-  -- Write to log file if configured
-  if cfg.debug and cfg.debug.log_file then
-    local ok, err = pcall(function()
-      local file = io.open(cfg.debug.log_file, "a")
-      if file then
-        file:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg .. "\n")
-        file:close()
-      else
-        vim.notify("Could not open debug log file: " .. cfg.debug.log_file, vim.log.levels.ERROR)
-      end
-    end)
-
-    if not ok then
-      vim.notify("Error writing to debug log: " .. err, vim.log.levels.ERROR)
-    end
-  end
-
-  -- Also notify if debug is set to high verbosity
-  if cfg.debug and cfg.debug.verbose then
-    vim.schedule(function()
-      vim.notify(msg, vim.log.levels.DEBUG)
-    end)
-  end
-end
-
 -- Run diagnostics
 function M.run_diagnostics()
-  M.debug_log("DEBUG", "Starting diagnostics")
+  debug.log("DEBUG", "Starting diagnostics")
 
   -- Test Neovim version
   local nvim_version = vim.version()
-  M.debug_log(
+  debug.log(
     "DEBUG",
     "Neovim version:",
     string.format("%d.%d.%d", nvim_version.major, nvim_version.minor, nvim_version.patch)
@@ -321,10 +271,10 @@ function M.run_diagnostics()
   -- Dump config
   local ok, config_module = pcall(require, "taskforge.config")
   if ok then
-    M.debug_log("DEBUG", "Configuration:", config_module.get())
+    debug.log("DEBUG", "Configuration:", config_module.get())
   end
 
-  M.debug_log("DEBUG", "Diagnostics complete")
+  debug.log("DEBUG", "Diagnostics complete")
 end
 
 -- Test taskwarrior connection
@@ -333,7 +283,7 @@ function M.test_taskwarrior()
   local output = {}
   local error_output = {}
 
-  M.debug_log("DEBUG", "Testing taskwarrior connection")
+  debug.log("DEBUG", "Testing taskwarrior connection")
 
   Job:new({
     command = "task",
@@ -346,9 +296,9 @@ function M.test_taskwarrior()
     end,
     on_exit = function(_, code)
       if code == 0 then
-        M.debug_log("DEBUG", "Taskwarrior version:", table.concat(output, "\n"))
+        debug.log("DEBUG", "Taskwarrior version:", table.concat(output, "\n"))
       else
-        M.debug_log("DEBUG", "Taskwarrior error:", table.concat(error_output, "\n"))
+        debug.log("DEBUG", "Taskwarrior error:", table.concat(error_output, "\n"))
       end
     end,
   }):start()
@@ -360,7 +310,7 @@ function M.test_tasks_data()
   local output = {}
   local error_output = {}
 
-  M.debug_log("DEBUG", "Testing task export")
+  debug.log("DEBUG", "Testing task export")
 
   Job:new({
     command = "task",
@@ -377,19 +327,19 @@ function M.test_tasks_data()
         if data and data ~= "" then
           local ok, parsed = pcall(vim.json.decode, data)
           if ok then
-            M.debug_log("DEBUG", "Task export successful, found " .. #parsed .. " tasks")
+            debug.log("DEBUG", "Task export successful, found " .. #parsed .. " tasks")
             -- Log a sample task
             if #parsed > 0 then
-              M.debug_log("DEBUG", "Sample task:", parsed[1])
+              debug.log("DEBUG", "Sample task:", parsed[1])
             end
           else
-            M.debug_log("DEBUG", "Failed to parse task data:", parsed)
+            debug.log("DEBUG", "Failed to parse task data:", parsed)
           end
         else
-          M.debug_log("DEBUG", "Task export returned empty data")
+          debug.log("DEBUG", "Task export returned empty data")
         end
       else
-        M.debug_log("DEBUG", "Task export error:", table.concat(error_output, "\n"))
+        debug.log("DEBUG", "Task export error:", table.concat(error_output, "\n"))
       end
     end,
   }):start()
@@ -399,15 +349,15 @@ end
 function M.check_snacks()
   local ok, Snacks = pcall(require, "snacks")
   if ok and Snacks then
-    M.debug_log("DEBUG", "Snacks is available")
+    debug.log("DEBUG", "Snacks is available")
 
     if Snacks.dashboard then
-      M.debug_log("DEBUG", "Snacks dashboard is available")
+      debug.log("DEBUG", "Snacks dashboard is available")
     else
-      M.debug_log("DEBUG", "Snacks dashboard is not available")
+      debug.log("DEBUG", "Snacks dashboard is not available")
     end
   else
-    M.debug_log("DEBUG", "Snacks is not available")
+    debug.log("DEBUG", "Snacks is not available")
   end
 end
 

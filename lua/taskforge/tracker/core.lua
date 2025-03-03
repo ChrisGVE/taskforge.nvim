@@ -3,7 +3,7 @@
 
 local M = {}
 local config = require("taskforge.config")
-local utils = require("taskforge.utils")
+local debug = require("taskforge.debug")
 
 -- Add initialization function for buffer tracking
 function M.initialize_buffer_tracking(bufnr)
@@ -86,7 +86,7 @@ function M._load_tasks()
     end
   end
 
-  utils.debug_log("TRACKER", "Loaded task cache", #vim.tbl_keys(M.state.task_cache))
+  debug.log("TRACKER", "Loaded task cache", #vim.tbl_keys(M.state.task_cache))
 end
 
 -- Reset the debounce timer for a buffer

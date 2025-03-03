@@ -3,6 +3,7 @@
 
 local M = {}
 local utils = require("taskforge.utils")
+local debug = require("taskforge.debug")
 
 function M.register()
   -- Create main user command
@@ -10,7 +11,7 @@ function M.register()
     local subcmd = opts.fargs[1]
     local args = { unpack(opts.fargs, 2) } -- Get all arguments after subcommand
 
-    utils.debug_log("COMMANDS", "Running command", { cmd = subcmd, args = args })
+    debug.log("COMMANDS", "Running command", { cmd = subcmd, args = args })
 
     if subcmd == "dashboard" then
       M.cmd_dashboard()
@@ -249,7 +250,7 @@ end
 
 function M.cmd_test()
   -- Test various functionalities for debugging
-  utils.debug_log("COMMANDS", "Running test command")
+  debug.log("COMMANDS", "Running test command")
 
   -- Test project detection
   local project = require("taskforge.project").current()
