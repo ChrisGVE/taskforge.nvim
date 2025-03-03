@@ -42,31 +42,36 @@ function M.process_tags(bufnr, candidates)
 
   -- If there are interactive tags to handle, show the UI
   if #result.interactive > 0 then
-    M.show_dialog({
-      source_bufnr = bufnr,
-      data_items = result.interactive,
-      mode = "tag_select",
-      title = "Select Tags to Create",
-      columns = { "select", "tag", "description", "line" },
-      item_formatter = function(item, idx)
-        return {
-          select = item.selected,
-          tag = item.tag,
-          description = item.description or "No description",
-          line = "line " .. (item.lnum + 1),
-          _data = item,
-        }
-      end,
-      key_select = function(item)
-        item.selected = not item.selected
-        return true -- Return true to refresh display
-      end,
-      on_complete = function(items, cancelled)
-        if not cancelled then
-          M.apply_tag_selections(bufnr, items)
-        end
-      end,
-    })
+    vim.notify(string.format("Taskforge: Found %d interactive tags", #result.interactive), vim.log.levels.INFO)
+
+    -- We need to delay showing the UI to prevent focus issues
+    vim.schedule(function()
+      M.show_dialog({
+        source_bufnr = bufnr,
+        data_items = result.interactive,
+        mode = "tag_select",
+        title = "Select Tags to Create",
+        columns = { "select", "tag", "description", "line" },
+        item_formatter = function(item, idx)
+          return {
+            select = item.selected,
+            tag = item.tag,
+            description = item.description or "No description",
+            line = "line " .. (item.lnum + 1),
+            _data = item,
+          }
+        end,
+        key_select = function(item)
+          item.selected = not item.selected
+          return true -- Return true to refresh display
+        end,
+        on_complete = function(items, cancelled)
+          if not cancelled then
+            M.apply_tag_selections(bufnr, items)
+          end
+        end,
+      })
+    end)
   elseif result.manual_processed > 0 or result.auto_processed > 0 then
     local msg = ""
     if result.auto_processed > 0 then

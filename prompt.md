@@ -62,8 +62,8 @@ The plugin must be:
 
 We are currently focusing on **Batch Tag Processing** and debugging related features. Additionally, we are addressing:
 
-- refactoring the UI functions into its own module `ui` in order to simplify and reuse the original `tracker/ui.lua`
-- Separation of concerns inconsistencies (e.g., buffer movements should be in `buffer.lua`, not `tracker/ui.lua`).
+- We have completed the refactoring and are now debugging what we have done
+- In addition we have to debug the debugger because it does not output to a file as expected
 - Proper organization of language-specific content (`lang/common.lua` should only contain shared logic)
 - Hooking into Trouble.nvim to display all tracked comments within a project.
 
