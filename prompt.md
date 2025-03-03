@@ -64,9 +64,7 @@ The plugin must be:
 
 We are currently focusing on **Batch Tag Processing** and debugging related features. Additionally, we are addressing:
 
-- We have to debug a stack overflow upon initialization of the plugin
 - We have completed the refactoring and are now debugging what we have done
-- Proper organization of language-specific content (`lang/common.lua` should only contain shared logic)
 - Hooking into Trouble.nvim to display all tracked comments within a project.
 
 ### Next steps (Development roadmap)
@@ -78,19 +76,21 @@ We are currently focusing on **Batch Tag Processing** and debugging related feat
   - tracked comment changed within neovim and respective synchronization
   - tracked comment changes from another editor (i.e. re-scan upon file opening) and respective synchronization
 - Adding new language-specific file configuration, loaded only when needed
-  - clang (C/C++)
-  - go
-  - html/css
-  - javascript/typescript
-  - ocaml
-  - perl
-  - python
-  - ruby
-  - rust
-  - sh/bash/zsh/fish/nushell
-  - vim
-  - xml/toml/yaml
-  - zig
+  - Review the organization of the language module vs. the detection code such that language-specific is kept in the lang module.
+    - Refresh the language template module with simplification in mind, and review or create language module for the following languages (some are grouped but where necessary they can be decoupled)
+      - clang (C/C++)
+      - go
+      - html/css
+      - javascript/typescript
+      - ocaml
+      - perl
+      - python
+      - ruby
+      - rust
+      - sh/bash/zsh/fish/nushell
+      - vim
+      - xml/toml/yaml
+      - zig
 
 #### User Interface
 
