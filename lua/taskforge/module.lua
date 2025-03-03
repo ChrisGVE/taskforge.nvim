@@ -93,10 +93,10 @@ function M.schedule_ui_init()
       })
 
       -- Initialize optional integrations
-      local trouble_ok = pcall(require, "trouble")
-      if trouble_ok then
-        M.require("taskforge.integrations.trouble").setup()
-      end
+      -- local trouble_ok = pcall(require, "trouble")
+      -- if trouble_ok then
+      --   M.require("taskforge.integrations.trouble").setup()
+      -- end
     end
   end)
 end
