@@ -170,17 +170,7 @@ local function caller(level, debug_info, max_depth)
   end
 end
 
--- Log a message to the file `./debug.log`.
--- - a timestamp will be added to every message.
--- - accepts multiple arguments and pretty prints them.
--- - if the argument is not a string, it will be printed using `vim.inspect`.
--- - if the message is smaller than 120 characters, it will be printed on a single line.
---
--- ```lua
--- Snacks.debug.log("Hello", { foo = "bar" }, 42)
--- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
--- ```
-
+-- Also fix the log function to use our safer caller implementation
 function M.log(...)
   local level = 3 -- level 3 because we expect the caller to be a global function
 
@@ -208,6 +198,52 @@ function M.log(...)
   for i = 1, c do
     local v = select(i, ...)
     parts[i] = type(v) == "string" and v or vim.inspect(v)
+  end
+
+  local msg = " | " .. caller_src .. "." .. caller_fn
+  local arg = table.concat(parts, " ")
+  if #arg ~= 0 then
+    msg = msg .. " | " .. arg
+  end
+
+  msg = #msg < (M.debug_config.log_max_len or 120) and msg:gsub("%s+", " ") or msg
+
+  fd:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg)
+  fd:write("\n")
+  fd:close()
+end
+
+-- Log a message to the file `./debug.log`.
+-- - a timestamp will be added to every message.
+-- - accepts multiple arguments and pretty prints them.
+-- - if the argument is not a string, it will be printed using `vim.inspect`.
+-- - if the message is smaller than 120 characters, it will be printed on a single line.
+--
+-- ```lua
+-- Snacks.debug.log("Hello", { foo = "bar" }, 42)
+-- -- 2024-11-08 08:56:52 Hello { foo = "bar" } 42
+-- ```
+
+function M.log(...)
+  local level = 3 -- level 3 because we expect the caller to be a global function
+  local caller_fn, caller_src = caller(level, debug.getinfo(level, debug_query))
+  local file = M.debug_config.log_file or "./debug.log"
+
+  local ok, fd = pcall(io.open, file, "a+")
+  if not ok or not fd then
+    return
+  end
+
+  local c = select("#", ...)
+  local parts = {} ---@type string[]
+  for i = 1, c do
+    local v = select(i, ...)
+    -- Properly handle both string and table arguments
+    if type(v) == "string" then
+      parts[i] = v
+    else
+      parts[i] = vim.inspect(v)
+    end
   end
 
   local msg = " | " .. caller_src .. "." .. caller_fn
