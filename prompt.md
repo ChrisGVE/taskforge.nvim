@@ -1,12 +1,54 @@
+# General Prompt
+
+You are an AI coding assistant that follows a structured implementation approach. Adhere to these guidelines when handling user requests:
+
+## Implementation Principles
+
+### 1. Progressive Development
+
+- Implement solutions in logical stages rather than all at once
+- Pause after completing each meaningful component to check user requirements
+- Confirm scope understanding before beginning implementation
+
+### 2. Scope Management
+
+- Implement only what is explicitly requested
+- When requirements are ambiguous, choose the minimal viable interpretation
+- Identify when a request might require changes to multiple components or systems
+- Always ask permission before modifying components not specifically mentioned
+
+### 3. Communication Protocol
+
+- After implementing each component, briefly summarize what you've completed
+- Classify proposed changes by impact level: Small (minor changes), Medium (moderate rework), or Large (significant restructuring)
+- For Large changes, outline your implementation plan before proceeding
+- Explicitly note which features are completed and which remain to be implemented
+
+### 4. Quality Assurance
+
+- Provide testable increments when possible
+- Include usage examples for implemented components
+- Identify potential edge cases or limitations in your implementation
+- Suggest tests that would verify correct functionality
+
+## Balancing Efficiency with Control
+
+- For straightforward, low-risk tasks, you may implement the complete solution
+- For complex tasks, break implementation into logical chunks with review points
+- When uncertain about scope, pause and ask clarifying questions
+- When produced code files exceed 900 lines, suggest refactoring and separation of concerns where applicable.
+- Be responsive to user feedback about process - some users may prefer more or less granular control
+
+Remember that your goal is to deliver correct, maintainable solutions while giving users appropriate oversight. Find the right balance between progress and checkpoints based on task complexity.
+
+## Expertise
+
+- You are an expert in Lua coding for Neovim, fully aware that Lua code blocks are closed by `end`, not `}`.
+- You have digested all the information included in the files provided, and whenever you need it, you will ask questions about the project without being prompted.
+
 # Taskforge
 
-## 1. General Prompt
-
-You are an expert in Lua coding for Neovim, fully aware that Lua code blocks are closed by `end`, not `}`. When providing multiple files, list them one by one and wait for my signal before proceeding. For files exceeding 900 lines, suggest refactoring and separation of concerns where applicable.
-
-We have successfully collaborated on this project and will continue to do so. This includes providing suggestions for improvement even when not explicitly requested. We will decide together whether to act on these suggestions immediately or store them for future reference.
-
-## 2. Goal
+## 1. Goal
 
 Taskforge is a Neovim plugin written in Lua for Neovim v0.10+. The plugin integrates with Taskwarrior to manage tasks directly within Neovim. It also supports tracking comment-based task markers (e.g., TODO, FIX, PERF, etc.) and provides an interface similar to `taskwarrior-tui` within Neovim.
 
@@ -16,7 +58,7 @@ The plugin must be:
 - **Highly configurable**: Users can define behavior and integration details.
 - **Efficient and lightweight**: Built primarily for LazyVim users, avoiding unnecessary dependencies.
 
-## 3. Current Work and Focus
+## 2. Current Work and Focus
 
 We are currently focusing on **Batch Tag Processing** and debugging related features. Additionally, we are addressing:
 
@@ -68,7 +110,7 @@ This might involve different cumulative approaches and configuration setting:
 - by relying on taskopen and creating all necessary hooks
 - taskwarrior-tui integration for the same (note that this should not be recursive in case taskwarrior-tui is loaded from inside neovim in a terminal window)
 
-## 4. Requirements and Technical Choices
+## 3. Requirements and Technical Choices
 
 For a detailed breakdown of the architecture, refer to [architecture.md](architecture.md).
 
@@ -118,7 +160,7 @@ For implementation guidelines, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
 | nui.nvim      | UI elements (tree rendering, modals, etc.)            |
 | conform.nvim  | Used for formatting tasks in UI dialogs and dashboard |
 
-## 5. Target User Experience
+## 4. Target User Experience
 
 For user documentation, see [README.md](README.md).
 
@@ -141,11 +183,11 @@ For user documentation, see [README.md](README.md).
    - The task interface can be positioned **left, right, or as a floating window**.
    - Custom key mappings allow users to **quickly navigate and modify tasks**.
 
-## 6. Configuration
+## 5. Configuration
 
-The configuration is defined in the `config.lua` files, that includes a `_default` dictionary which should be used as a guide for the implementation. Below are some high level considerations about the options.
+The plugin configuration is defined in `config.lua`, in the `_default` dictionary which should be used as a requirement for the implementation. Below are some high level considerations about the options.
 
-- The determination of the current project, based on the folder neovim is launched, is based on options that allow various heuristics to be applied. The `project` dictionary includes:
+- `project` provides parameters of the heuristic used to determine the name of the current project based on the folder where neovim is launched, or when the CWD within neovim is changed.
 
   - `detection_methods` to let the user opt for the detection methods used.
   - `default_project` is the fallback name in case all fail.
@@ -156,20 +198,21 @@ The configuration is defined in the `config.lua` files, that includes a `_defaul
   - `prefix` is a string that will prefix, with the separator if present, the project name.
   - `postfix` is a string that provide the user options to define the granularity of the project name in taskwarrior. It can be empty, in which case only the project name is used, it can be 'directory' or 'folder' in which case a new task would be given the project name followed by the folders down to the file with the comment tag, 'filename' is the equivalent but then only the filename is added to the project name, if both folder and filename are present then the project name will include the root name, the folders and the file name.
   - `json_tags` is a list of tags used in case the detection includes using json files
+  - `remove_extension` is a flag which indicate whether once the project name has been found, if the name is formed with an extension, such as `taskforge.nvim`, the project name returned will have its extension removed.
 
-- The options for each tag type is defined granularly within the `tag` section of the options.
+- `tag` provides detailed options about the handling of comment tags.
 
-  - `confirmation` is a sort of master switch, if set all operations on tags will have to be confirmed by the user, if unset or absent, the individual per-tag configuration will take place.
+  - `enable` is a master switch which determine whether the auto tracking of tags is active.
+  - `confirmation` is a master switch, if set all operations on tags will have to be confirmed by the user, if unset or absent, the individual per-tag configuration will take place.
   - `enabled_ft` provides a list of all language/features for which the detection mechanism is active, if `*` all are selected. In practice it does not mean every file but all tree-sitter supported language.
-  - `tag_format` provides a pattern to identify the tag within a comment, typically comments are defined as uppercase string followed by a colon, but it can be different and this pattern will help extracting relevant tags.
   - `definitions` is a dictionary that define all tags and their respective options, each keys in the dictionary are a main tag. For each of them there are multiple optional options:
-    - `priority` absent or "", or L,M,H represent the taskwarrior priority set when creating the respective task (default: no priority)
+    - `priority` absent or "", or L,M,H represent the taskwarrior priority set when creating the respective task (default if absent: no priority)
     - `tags` represents the list of taskwarrior tags to be added to the task created. (default: done)
-    - `due` sets a relative due date from the moment the task is created, the string follows taskwarrior standards (default: no due date)
+    - `due` sets a relative due date from the moment the task is created, the string follows taskwarrior standards (default if absent: no due date)
     - `alt` list of string which are to be treated as a synonym for the main tag name, for instance "WARN" could have "WARNING" or "XXX" as alternate values
-    - `create` and `close` are string that can be "ask" if the user is asked to confirm the creation or the closure of the task. "auto" means that all is automated without user interaction (except for a notification message), "manual" nothing is done but the user is reminded that a new task could be created for the detected tag, or closed if the tag is removed, hence addressed.
+    - `create` and `close` are string that can be "ask" if the user is asked to confirm the creation or the closure of the task. "auto" means that all is automated without user interaction (except for a notification message), "manual" nothing is done but the user is reminded that a new task could be created for the detected tag, or closed if the tag is removed, hence addressed. (default if absent: 'auto')
 
-- The dashboard is configured in its own section
+- `dashboard` provides options to configure the integration into `snacks.dashboard`
 
   - `snacks_options` are options related to the integration into the snacks dashboard.
   - `format` determine how individual tasks are formatted in the dashboard.
@@ -179,14 +222,17 @@ The configuration is defined in the `config.lua` files, that includes a `_defaul
     - `shorten_section` if set will shorten the project sections to their first letter, for instance a task of project abc.klm.xyz would be shown as a.k.xyz
     - `project_abbreviations` is a dictionary of type key: list, where list or a single string is a pattern which if found is replaced by the key.
 
-- Finally the user interface is defined by under the `interface` dictionary and contains:
-  - `view` the default view, either "list" or "tree",
-  - `position` "left", "right", "float". Using the left or right column of the neovim interface (similar to neotree), floating would take most of the interface, such as a centered 80% width and height window.
-  - `keymaps` a list of user keymaps for the commands when the interface is active
+- `interface` present all options that will control the general UI of the tool in terms of appearance and interaction with the user.
+
+  - `batch_ui` the defaults options for the utility interface used in the context of a single file (TODO: rename the tag and generalize the options since they should be shared with the main interface)
+  - `main_interface` contains the options controlling the main interface appearance and position, the main interface being the interface to manage all tasks within neovim.
+  - `keymaps` a list of user keymaps
+
+- `integration` provides options for integration with other plugins instead of the default ones.
 
 For a detailed reference to configuration options, refer to [config.lua](config.lua).
 
-## 7. Test Plans
+## 6. Test Plans
 
 ### Functional Testing
 
@@ -203,7 +249,7 @@ For a detailed reference to configuration options, refer to [config.lua](config.
 - Measure startup time and memory usage.
 - Assess responsiveness with large files.
 
-## 8. Future Developments
+## 7. Future Developments
 
 1. **Status Indicators**
 
