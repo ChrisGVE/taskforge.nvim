@@ -254,6 +254,7 @@ function M.debug_log(module, message, data)
     cfg = config_module.get()
   else
     vim.notify("Debug_log: could not get taskforge.config", vim.log.levels.WARN)
+    return -- Early return to avoid errors
   end
 
   if not (cfg.debug and cfg.debug.enable) then
@@ -273,10 +274,18 @@ function M.debug_log(module, message, data)
 
   -- Write to log file if configured
   if cfg.debug and cfg.debug.log_file then
-    local file = io.open(cfg.debug.log_file, "a")
-    if file then
-      file:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg .. "\n")
-      file:close()
+    local ok, err = pcall(function()
+      local file = io.open(cfg.debug.log_file, "a")
+      if file then
+        file:write(os.date("%Y-%m-%d %H:%M:%S ") .. msg .. "\n")
+        file:close()
+      else
+        vim.notify("Could not open debug log file: " .. cfg.debug.log_file, vim.log.levels.ERROR)
+      end
+    end)
+
+    if not ok then
+      vim.notify("Error writing to debug log: " .. err, vim.log.levels.ERROR)
     end
   end
 

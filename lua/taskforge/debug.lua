@@ -14,6 +14,14 @@ local M = setmetatable({}, {
 
 M.debug_config = {}
 
+-- Internal notify function to avoid circular dependencies
+local function notify(msg, level)
+  level = level or vim.log.levels.INFO
+  vim.schedule(function()
+    vim.notify(msg, level)
+  end)
+end
+
 local debug_query = "Sn"
 local cache_dir = {}
 
@@ -51,7 +59,7 @@ function M.inspect(...)
   end
   vim.schedule(function()
     local title = "Debug: " .. vim.fn.fnamemodify(caller.source:sub(2), ":~:.") .. ":" .. caller.linedefined
-    Snacks.notify.warn(vim.inspect(len == 1 and obj[1] or len > 0 and obj or nil), { title = title, ft = "lua" })
+    notify(title .. ":" .. vim.inspect(len == 1 and obj[1] or len > 0 and obj or nil))
   end)
 end
 
@@ -76,7 +84,7 @@ function M.backtrace(msg, opts)
     end
   end
   local result = #trace > 0 and (table.concat(trace, "\n")) or ""
-  Snacks.notify(result, opts)
+  notify(result)
 end
 
 -- Very simple function to profile a lua function.
@@ -94,7 +102,7 @@ function M.profile(fn, opts)
     end
     fn()
   end
-  Snacks.notify(((uv.hrtime() - start) / 1e6 / opts.count) .. "ms", { title = opts.title or "Profile" })
+  notify(((opts.title or "Profile") .. ": " .. (uv.hrtime() - start) / 1e6 / opts.count) .. "ms", vim.log.levels.WARN)
 end
 
 ---@param level integer
@@ -146,7 +154,7 @@ function M.log(...)
   local file = M.debug_config.log_file or "./debug.log"
   local fd = io.open(file, "a+")
   if not fd then
-    error(("Could no t open file %s for writing"):format(file))
+    error(("Could not open file %s for writing"):format(file))
   end
   local c = select("#", ...)
   local parts = {} ---@type string[]
@@ -246,7 +254,7 @@ function M.stats(opts)
     add(summary)
     lines[#lines + 1] = "\n# Trace"
     add(trace)
-    Snacks.notify.warn(lines, { title = "Traces" })
+    notify("Traces: " .. lines, vim.log.levels.WARN)
   end
   return { summary = summary, trace = trace, tree = M._traces }
 end
@@ -276,7 +284,7 @@ function M.metrics(show)
   end
   lines[#lines + 1] = ("```lua\n%s\n```"):format(vim.inspect(uv.getrusage()))
   if show == nil or show then
-    Snacks.notify.warn(lines, { title = "Metrics" })
+    notify("Metrics: " .. lines, vim.log.levels.WARN)
   else
     return "Metrics: " .. lines
   end

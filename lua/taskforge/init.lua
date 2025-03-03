@@ -89,14 +89,14 @@ function M.setup(user_opts)
   -- Get config for debug setup
   local cfg = M._config.get()
 
+  local utils = require("taskforge.utils")
+
   -- Setup debug module if enabled
   if cfg.debug and cfg.debug.enable then
-    -- Check if snacks.debug is available
-    local has_debug = pcall(require, "snacks.debug")
-    if has_debug then
-      local debug = require("snacks.debug")
-      debug.setup(cfg.debug)
-    end
+    -- Initialize our own debug module first
+    local debug_module = require("taskforge.debug")
+    debug_module.setup(cfg.debug)
+
     -- Set default log file if not specified
     if not cfg.debug.log_file then
       cfg.debug.log_file = vim.fn.stdpath("cache") .. "/taskforge_debug.log"
