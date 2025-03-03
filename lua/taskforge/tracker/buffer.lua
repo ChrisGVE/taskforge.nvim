@@ -18,6 +18,7 @@ end
 -- Process a buffer for task tags
 -- @param bufnr number Buffer number
 -- @param initial boolean Whether this is initial processing (first time seen)
+-- @param force_scan boolean Force a full scan even if already processed
 function M.process(bufnr, initial_scan, force_scan)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
@@ -52,9 +53,13 @@ function M.process(bufnr, initial_scan, force_scan)
 
     -- Process tags in batch if there are any
     if #untracked_tags > 0 then
-      -- Always use batch processing - no flag check needed
-      local tracker = require("taskforge.tracker")
-      tracker.process_batch(bufnr, untracked_tags)
+      -- Use new UI system for batch processing
+      utils.debug_log("BUFFER", "Starting batch processing with UI system")
+      -- Defer the UI processing to avoid BufEnter autocmd issues
+      vim.schedule(function()
+        local ui = require("taskforge.ui")
+        ui.process_batch_tags(bufnr, untracked_tags)
+      end)
       return
     end
   end
@@ -201,6 +206,11 @@ function M.find_untracked_tags(bufnr)
         if comment_text:match(tag_name) then
           utils.debug_log("BUFFER", "Found tag " .. tag_name .. " in comment")
 
+          -- Extract tag info using language module
+          local lang = require("taskforge.lang").get_for_buffer(bufnr)
+          local info = lang.extract_tag_info(comment_text, tag_name)
+          local description = info and info.description or "No description"
+
           -- Found a tag, add to candidates list
           table.insert(untracked_tags, {
             lnum = start_row,
@@ -208,6 +218,8 @@ function M.find_untracked_tags(bufnr)
             tag = tag_name,
             def = def,
             node = node,
+            description = description,
+            selected = def.create == "auto", -- Pre-select auto tags
           })
           goto continue
         end
@@ -221,33 +233,60 @@ function M.find_untracked_tags(bufnr)
   return untracked_tags
 end
 
--- Process tag candidates in batch
-function M.process_tag_candidates(bufnr, candidates)
-  -- Use the UI module for batch processing
-  local ui = require("taskforge.tracker.ui")
-  ui.batch_process_tags(bufnr, candidates)
+-- Group and process candidates by their configuration type
+-- @param bufnr number Buffer number
+-- @param candidates table Tag candidates
+-- @return table Result with categorized tags
+function M.process_candidates_by_type(bufnr, candidates)
+  local auto_processed = 0
+  local manual_processed = 0
+  local interactive = {}
+
+  -- Group by tag type
+  for _, candidate in ipairs(candidates) do
+    if candidate.def.create == "auto" then
+      -- Auto create task
+      M.process_auto_tag(bufnr, candidate)
+      auto_processed = auto_processed + 1
+    elseif candidate.def.create == "manual" then
+      -- Show notification
+      M.process_manual_tag(bufnr, candidate)
+      manual_processed = manual_processed + 1
+    else
+      -- Add to interactive list for user decision
+      table.insert(interactive, candidate)
+    end
+  end
+
+  return {
+    auto_processed = auto_processed,
+    manual_processed = manual_processed,
+    interactive = interactive,
+  }
 end
 
 -- Process a tag for auto-creation
-function M._process_auto_tag(bufnr, candidate)
+function M.process_auto_tag(bufnr, candidate)
   local tags = require("taskforge.tracker.tags")
   tags.process_tag(bufnr, candidate.lnum, candidate.tag, candidate.def, candidate.node)
 end
 
 -- Process a tag for manual notification (no creation)
-function M._process_manual_tag(bufnr, candidate)
-  -- Extract description
-  local lang = require("taskforge.lang").get_for_buffer(bufnr)
-  local comment_text = vim.treesitter.get_node_text(candidate.node, bufnr)
-  local info = lang.extract_tag_info(comment_text, candidate.tag)
-
-  if info and info.description then
-    -- Just notify, don't create task
-    utils.notify(
-      "Tag found: " .. candidate.tag .. ": " .. info.description .. "\nUse :TaskforgeTag add to create task",
-      vim.log.levels.INFO
-    )
+function M.process_manual_tag(bufnr, candidate)
+  -- Extract description if not already provided
+  local description = candidate.description
+  if not description then
+    local lang = require("taskforge.lang").get_for_buffer(bufnr)
+    local comment_text = vim.treesitter.get_node_text(candidate.node, bufnr)
+    local info = lang.extract_tag_info(comment_text, candidate.tag)
+    description = info and info.description or "No description"
   end
+
+  -- Just notify, don't create task
+  utils.notify(
+    "Tag found: " .. candidate.tag .. ": " .. description .. "\nUse :TaskforgeTag add to create task",
+    vim.log.levels.INFO
+  )
 end
 
 -- Process tracked tags in a buffer
@@ -340,6 +379,48 @@ function M.check_removed_tags(bufnr)
 
     ::continue::
   end
+end
+
+-- Jump to a tag in a buffer
+-- @param bufnr number Buffer number
+-- @param lnum number Line number (0-indexed)
+-- @return boolean Success
+function M.jump_to_tag(bufnr, lnum)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  -- Check if line exists
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  if lnum >= line_count then
+    return false
+  end
+
+  -- Get window for buffer or open buffer in window
+  local win = nil
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(w) == bufnr then
+      win = w
+      break
+    end
+  end
+
+  if not win then
+    -- Buffer not displayed, open it
+    vim.api.nvim_set_current_buf(bufnr)
+    win = vim.api.nvim_get_current_win()
+  else
+    -- Buffer already open, focus the window
+    vim.api.nvim_set_current_win(win)
+  end
+
+  -- Jump to line
+  vim.api.nvim_win_set_cursor(win, { lnum + 1, 0 })
+
+  -- Center the line in the window
+  vim.cmd("normal! zz")
+
+  return true
 end
 
 return M

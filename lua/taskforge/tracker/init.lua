@@ -139,13 +139,13 @@ end
 -- Public API --
 
 -- Process a buffer for task tags
-function M.process_buffer(bufnr, initial)
+function M.process_buffer(bufnr, initial, force_scan)
   local buffer = require("taskforge.tracker.buffer")
-  return buffer.process(bufnr, initial)
+  return buffer.process(bufnr, initial, force_scan)
 end
 
 function M.process_batch(bufnr, candidates)
-  local ui = require("taskforge.tracker.ui")
+  local ui = require("taskforge.ui")
   ui.batch_process_tags(bufnr, candidates)
 end
 

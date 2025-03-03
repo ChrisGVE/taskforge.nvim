@@ -11,6 +11,7 @@ local M = {
       enable = nil,
       log_file = nil,
       log_max_len = nil,
+      verbose = nil,
     },
     -- Project naming configuration
     project = {

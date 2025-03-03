@@ -151,7 +151,8 @@ end
 function M.show_dialog_help(parent_dialog)
   -- Get keymaps configuration from original dialog
   local keymaps = parent_dialog.keymaps or {}
-  local cfg = config.get().interface or {}
+  local cfg = config.get()
+  local cfg_keymaps = (cfg.interface and cfg.interface.keymaps) or {}
 
   -- Format keys for display
   local function format_key(key)
@@ -192,22 +193,22 @@ function M.show_dialog_help(parent_dialog)
 
   -- Add actions section
   local action_keys = {}
-  if keymaps.confirm or cfg.keymaps.confirm then
-    table.insert(action_keys, format_key(keymaps.confirm or cfg.keymaps.confirm) .. "  : Confirm/Apply")
+  if keymaps.confirm or cfg_keymaps.confirm then
+    table.insert(action_keys, format_key(keymaps.confirm or cfg_keymaps.confirm) .. "  : Confirm/Apply")
   end
 
-  if keymaps.cancel or cfg.keymaps.cancel then
-    table.insert(action_keys, format_key(keymaps.cancel or cfg.keymaps.cancel) .. "  : Cancel/Exit")
+  if keymaps.cancel or cfg_keymaps.cancel then
+    table.insert(action_keys, format_key(keymaps.cancel or cfg_keymaps.cancel) .. "  : Cancel/Exit")
   end
 
-  if keymaps.select_task or cfg.keymaps.select_task then
-    table.insert(action_keys, format_key(keymaps.select_task or cfg.keymaps.select_task) .. "  : Toggle selected item")
+  if keymaps.select_task or cfg_keymaps.select_task then
+    table.insert(action_keys, format_key(keymaps.select_task or cfg_keymaps.select_task) .. "  : Toggle selected item")
   end
 
-  if keymaps.select_all_task or cfg.keymaps.select_all_task then
+  if keymaps.select_all_task or cfg_keymaps.select_all_task then
     table.insert(
       action_keys,
-      format_key(keymaps.select_all_task or cfg.keymaps.select_all_task) .. "  : Toggle all items to match current"
+      format_key(keymaps.select_all_task or cfg_keymaps.select_all_task) .. "  : Toggle all items to match current"
     )
   end
 
@@ -221,16 +222,16 @@ function M.show_dialog_help(parent_dialog)
 
   -- Add edit section if applicable
   local edit_keys = {}
-  if keymaps.edit or cfg.keymaps.edit then
-    table.insert(edit_keys, format_key(keymaps.edit or cfg.keymaps.edit) .. "  : Edit item")
+  if keymaps.edit or cfg_keymaps.edit then
+    table.insert(edit_keys, format_key(keymaps.edit or cfg_keymaps.edit) .. "  : Edit item")
   end
 
-  if keymaps.close_task or cfg.keymaps.close_task then
-    table.insert(edit_keys, format_key(keymaps.close_task or cfg.keymaps.close_task) .. "  : Mark task as done")
+  if keymaps.close_task or cfg_keymaps.close_task then
+    table.insert(edit_keys, format_key(keymaps.close_task or cfg_keymaps.close_task) .. "  : Mark task as done")
   end
 
-  if keymaps.delete_task or cfg.keymaps.delete_task then
-    table.insert(edit_keys, format_key(keymaps.delete_task or cfg.keymaps.delete_task) .. "  : Delete task")
+  if keymaps.delete_task or cfg_keymaps.delete_task then
+    table.insert(edit_keys, format_key(keymaps.delete_task or cfg_keymaps.delete_task) .. "  : Delete task")
   end
 
   if #edit_keys > 0 then
@@ -268,8 +269,8 @@ function M.create_help_content(dialog_type)
   }
 
   -- Get configuration
-  local cfg = config.get().interface or {}
-  local keymaps = cfg.keymaps or {}
+  local cfg = config.get()
+  local keymaps = (cfg.interface and cfg.interface.keymaps) or {}
 
   -- Add appropriate sections based on dialog type
   if dialog_type == "batch" or dialog_type == "tag_select" then

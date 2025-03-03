@@ -252,6 +252,8 @@ function M.debug_log(module, message, data)
   local ok, config_module = pcall(require, "taskforge.config")
   if ok then
     cfg = config_module.get()
+  else
+    vim.notify("Debug_log: could not get taskforge.config", vim.log.levels.WARN)
   end
 
   if not (cfg.debug and cfg.debug.enable) then

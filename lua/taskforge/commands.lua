@@ -206,12 +206,19 @@ end
 
 function M.cmd_refresh()
   require("taskforge.tasks").refresh_cache()
-  utils.notify("Task cache refreshed")
+
+  -- Use the UI for notification if available
+  local ok, ui = pcall(require, "taskforge.ui")
+  if ok then
+    ui.notify_dialog("Task cache refreshed", { timeout = 1500 })
+  else
+    utils.notify("Task cache refreshed")
+  end
 end
 
 function M.cmd_tag(args)
   if #args == 0 then
-    utils.notify("Usage: Taskforge tag <add|remove|link|optout|process>", vim.log.levels.ERROR)
+    utils.notify("Usage: Taskforge tag <add|remove|link|optout|process|review>", vim.log.levels.ERROR)
     return
   end
 
@@ -228,6 +235,13 @@ function M.cmd_tag(args)
     tracker.add_optout_at_cursor()
   elseif subcmd == "process" then
     tracker.process_all(true) -- true = force batch mode
+  elseif subcmd == "review" then
+    -- Review all tags in current buffer
+    local bufnr = vim.api.nvim_get_current_buf()
+    local ui = require("taskforge.ui")
+    ui.review_tags_in_buffer(bufnr)
+  elseif subcmd == "tag" then
+    return { "add", "remove", "link", "optout", "process", "review" }
   else
     utils.notify("Unknown tag command: " .. subcmd, vim.log.levels.ERROR)
   end

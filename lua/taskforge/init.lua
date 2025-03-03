@@ -97,6 +97,17 @@ function M.setup(user_opts)
       local debug = require("snacks.debug")
       debug.setup(cfg.debug)
     end
+    -- Set default log file if not specified
+    if not cfg.debug.log_file then
+      cfg.debug.log_file = vim.fn.stdpath("cache") .. "/taskforge_debug.log"
+      utils.notify("Debug logs: " .. cfg.debug.log_file, vim.log.levels.INFO)
+    end
+  else
+    -- Enable basic debug logging for now
+    cfg.debug = cfg.debug or {}
+    cfg.debug.enable = true
+    cfg.debug.log_file = vim.fn.stdpath("cache") .. "/taskforge_debug.log"
+    utils.notify("Enabled debug logs: " .. cfg.debug.log_file, vim.log.levels.INFO)
   end
 
   -- Initialize core modules and system modules in the correct order to prevent circular dependencies
@@ -108,8 +119,11 @@ function M.setup(user_opts)
     -- Configure taskwarrior
     require("taskforge.tasks").configure()
 
-    -- Initialize tracker module - NEW REFACTORED VERSION
+    -- Initialize tracker module
     require("taskforge.tracker").setup()
+
+    -- Initialize UI module
+    require("taskforge.ui").setup()
 
     -- Set up commands
     require("taskforge.commands").register()
