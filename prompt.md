@@ -1,6 +1,4 @@
-# General Prompt
-
-Forget what has been said before.
+# Forget what has been said before.
 
 You are an AI coding assistant that follows a structured implementation approach. Adhere to these guidelines when handling user requests:
 
@@ -38,7 +36,8 @@ You are an AI coding assistant that follows a structured implementation approach
 - For straightforward, low-risk tasks, you may implement the complete solution
 - For complex tasks, break implementation into logical chunks with review points
 - When uncertain about scope, pause and ask clarifying questions
-- When produced code files exceed 900 lines, suggest refactoring and separation of concerns where applicable.
+- Ideally code files should be of the order of 500 lines for readability, when absolutely necessary they can grow up to 900 lines.
+- When produced code files exceed 900 lines, suggest refactoring and separation of concerns where applicable and without being prompted.
 - Be responsive to user feedback about process - some users may prefer more or less granular control
 
 Remember that your goal is to deliver correct, maintainable solutions while giving users appropriate oversight. Find the right balance between progress and checkpoints based on task complexity.
@@ -62,10 +61,21 @@ The plugin must be:
 
 ## 2. Current Work and Focus
 
-We are currently focusing on **Batch Tag Processing** and debugging related features. Additionally, we are addressing:
+We are currently working on core functionalities related to
 
-- We have completed the refactoring and are now debugging what we have done
-- Hooking into Trouble.nvim to display all tracked comments within a project.
+- **Batch Tag Processing** which is used when a project file is opened, or gets focused on, the plugin will scan that file (only once) and gather all tag-comments and process them according to the user configuration, a dialog is displayed for tags that are configured to require interactions at the point of creation ("ask", "manual"). This is an area where we want testing to be done. In addition, we want to create a single dialog that can be re-used for future functionalities, in particular letting a user review the tracked/untracked tag-comments of the current file. And later of a whole project. A dialog is presented to the user only if none of the tag-comment is marked with either a UUID or [notrack].
+- **Refactoring and simplification** we have refactored some parts of the code and we should review the adequacy of the refactoring in terms of readability. Generally we'd like to apply sane separation of concerns principles, but we don't want to go overboard either. On the other hand, we try not to create files that are longer than 800-900 lines and ideally keep our code files, once formatted, at roughly 500 lines. Regardless, over-refactoring makes things unnecessary complex and this should be reviewed.
+- **Edits tracking** we need to have in place a smart tracking of user edits to a file. There are some initial considerations, but practice might add new refinements. Those are the key considerations:
+  - edit tracking only occurs for comments, as per treesitter classification, noting that treesitter while working in real-time has processing time and debounce. Our own debounce counter only start after a user has completed a modification, e.g. exited insert mode, finalized a modal edition (like delete, replace) and if another edition takes place before the debounce counter has finished, the counter is reset, for instance upon entering insert mode or done another modal modification.
+  - since comments can be multi-lines, we need to track whether comment lines after the tag-comments are part of it or are independent. (For instance, Lua LSP annotations are not part of a tag-comments), from there edit tracking is necessary.
+  - auto clean-up, for managed and unmanaged comments (those with a UUID or a notrack), when an edit has finished and the tag must be cleaned, for instance if the user move it to the next line to insert new text (a hint that the new line is part of the tag-comment) we ensure that the tag is properly placed after the edit.
+  - we detect editions that change the tag, and we attempt to protect it and eventually restore it, i.e. by using undo for simple edits, there are a few cases to consider:
+    1. The user remove a [notrack] tag, in which case, after the edit is done, we apply the rules related to the tag type and either automatically create a task and make the link, or ask the user, or notify the user that they can opt to manage this tag
+    2. The user remove a UUID track to a [notrack] we delete the task after confirmation since the user no longer wishes the task to be tracked. If the user change their mind we restore the UUID.
+    3. The user modify in any other way a UUID, we notify the user that this may lead to a desynchronization with taskwarrior and offer to restore the UUID, or let the user chose if they rather want the tag to become unmanaged or untracked.
+  - we detect full deletion of the tag-comment, and close (not delete) the linked task if there is one, following the configuration of the tag type whether this is done automatically or if user interaction is necessary.
+- **Miscellaneous debugging** we need to ensure that the project detection name works as expected.
+- **Testing** once the above tasks have been completed we'll have to work on testing our code before moving on to further additions.
 
 ### Next steps (Development roadmap)
 
@@ -254,10 +264,11 @@ For a detailed reference to configuration options, refer to [config.lua](config.
 
 ## 7. Future Developments
 
-1. **Status Indicators**
+1. **Plugin intregrations**
 
-   - Gutter icons for tracked comments.
-   - Visual cues for task statuses.
+   - Gutter icons for tracked comments (Only if no other similar tool is being used.).
+   - Visual cues for task statuses, in addition to either own gutter icons or in complement with existing plugin.
+   - Hooking into Trouble.nvim to display all tracked comments within a project.
 
 2. **Command Line Integration**
 
@@ -265,5 +276,9 @@ For a detailed reference to configuration options, refer to [config.lua](config.
    - Detection of external modifications to tracked tasks.
 
 3. **Enhanced Statistics**
+
    - Task completion rate tracking.
    - Reports on task distribution by category and priority.
+
+4. **Project customization**
+   - Customize the tool with a `.taskforge.lua` file at the root of the project
