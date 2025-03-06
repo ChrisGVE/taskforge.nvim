@@ -20,7 +20,7 @@ The dialog system needs to be generalized to provide a flexible foundation for a
 
   -- Appearance
   position = {                      -- Position relative to source window
-    row = "top",                    -- "top", "center", "bottom" or number
+    row = "top",                    -- "top", "center", "bottom", "adaptive" or number
     col = "center",                 -- "left", "center", "right" or number
   },
   size = {                          -- Size constraints
@@ -55,7 +55,29 @@ The dialog system needs to be generalized to provide a flexible foundation for a
 }
 ```
 
+The dialog specifications, as a reusable component, as are follows:
+
+- the dialog is always relative to a given window for size and position. Note that the "top" and "bottom" options indicate the top or bottom third of the underlying window, while "adaptive" mode starts at the top but can move to the bottom in case it obstructs the highlighted code line
+- the above options provides some scaffolding around the configuration of the dialog, such as window decoration, style, header, data definition, functions and keymaps, as well as help content such that the dialog can instantiate the help window.
+- Keymaps are always those of the main interface, but the active keymaps are selected according to the caller needs
+- Data content will always be a list of columns and always be a set of tag-comment (tracked or not)
+- Changing the selected items will trigger a scroll of the underlying buffer in its window to position the line with the tag-comment in view (depending on the dialog position row option)
+- Optional features selected by the caller will be
+  - Filtering on a given column
+  - Sorting on a given column
+  - Fuzzy searching
+- Columns are read-only with the exception of a selected toggle column which can take an on/off value or cycle through multiple values, each values on/off or from the cycle are given a string (can be an icon)
+- Theming can be done by column and state
+- While columns are read-only, it is possible to make modifications, similar to how taskwarrior-tui is performing modification, after a modification, the dialog can be refreshed, as well as the underlying tag-comment if appropriate
+- Return values can be
+  - Nothing
+  - Exit key (e.g. <cr> or <esc>)
+  - A single row
+  - All rows with the updated toggle values
+
 ### 1.2 Tag Tracking
+
+                                                                                                                                 f
 
 The tag tracking system should implement these behaviors:
 

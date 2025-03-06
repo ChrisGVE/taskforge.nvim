@@ -85,6 +85,7 @@ local M = {
       },
       --
       debounce = 500, -- time in ms to wait before updating taskwarrior after a change
+      no_tracking_mark = "notrack", -- mark that is used to indicate that a tag-comment is not tracked, it takes the place of the UUID.
       definitions = {
         ["TODO"] = {
           priority = "M", -- default taskwarrior priority
