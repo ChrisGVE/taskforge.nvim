@@ -135,21 +135,21 @@ For implementation guidelines, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
    - Provides a structured and interactive interface for managing tasks within Neovim.
    - Supports **list view** (flat task list) and **tree view** (showing dependencies between tasks).
-   - Uses a **fuzzy search picker** for locating tasks quickly.
+   - Uses a **unified dialog system** for selections and data display.
    - Allows **filtering by project, tags, urgency, etc.**
    - Integrates with Neovim commands to **jump to specific comment locations** in source files.
    - Supports **task modification**, including editing task attributes directly within the interface.
-   - Offers an **optional integration with taskwarrior-tui**, enabling the user to open the external TUI inside a terminal buffer in Neovim.
    - Uses **taskopen** for external tools that attempt to open tasks inside Neovim.
 
 2. **Comment-Based Task Tracking**
 
    - Detects and tracks common inline task markers (`TODO`, `FIX`, `PERF`, etc.).
    - Assigns **UUIDs to tasks**, ensuring persistence even if files are renamed or moved.
-   - Supports **multi-line comments**, including various block comment syntaxes (e.g., Lua `--[[ ]], --[=[ ]=]`).
+   - Supports **multi-line comments**, including various block comment syntaxes.
    - Implements **smart debouncing** to prevent excessive prompts when editing tracked comments.
    - Ensures **compatibility with formatters** (UUIDs must persist after formatting).
    - Provides an **opt-out mechanism** (`[notrack]` marker) for specific comments.
+   - Includes **batch processing** for handling multiple tags efficiently.
 
 3. **Performance and Optimization**
 
@@ -157,21 +157,21 @@ For implementation guidelines, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
    - Implements a **low-overhead event listener** to detect relevant file changes.
    - Uses **asynchronous processing** to prevent UI lag.
    - Implements **optimized debounce timing** to avoid unnecessary operations during active editing.
+   - Provides **fallback mechanisms** when optimal dependencies aren't available.
 
 4. **External Integrations**
    - Optional: **taskwarrior-tui** (if installed) can be invoked inside Neovim.
    - Required: **taskopen** integration ensures external task operations can open the correct Neovim buffer.
    - Optional: **Trouble.nvim** integration displays tracked tasks across multiple files.
 
-### Dependencies (Leveraging LazyVim First)
+### Dependencies
 
-| Dependency    | Purpose                                               |
-| ------------- | ----------------------------------------------------- |
-| plenary.nvim  | Async job control, access to Taskwarrior CLI          |
-| tree-sitter   | Advanced comment detection and extraction             |
-| snacks.picker | Default fuzzy finder (optional: fzf-lua, telescope)   |
-| nui.nvim      | UI elements (tree rendering, modals, etc.)            |
-| conform.nvim  | Used for formatting tasks in UI dialogs and dashboard |
+| Dependency    | Purpose                                             |
+| ------------- | --------------------------------------------------- |
+| plenary.nvim  | Async job control, access to Taskwarrior CLI        |
+| tree-sitter   | Advanced comment detection and extraction           |
+| nui.nvim      | UI dialog components                                |
+| snacks.picker | Default fuzzy finder (optional: telescope, fzf-lua) |
 
 ## 4. Target User Experience
 
@@ -247,20 +247,7 @@ For a detailed reference to configuration options, refer to [config.lua](config.
 
 ## 6. Test Plans
 
-### Functional Testing
-
-- Ensure task markers (`TODO`, `FIX`, `PERF`, etc.) are detected and processed correctly.
-- Verify UUID assignment and persistence.
-- Test smart debouncing behavior when editing tracked comments.
-- Confirm formatter compatibility with UUID retention.
-- Check the `[notrack]` opt-out mechanism.
-
-### Regression and Performance Testing
-
-- Validate all commands function correctly.
-- Test dashboard and task navigation.
-- Measure startup time and memory usage.
-- Assess responsiveness with large files.
+Please refer to the Implementation Guide section on Integration Testing in [IMPLEMENTATION.md](IMPLEMENTATION.md) for a detailed testing approach.
 
 ## 7. Future Developments
 

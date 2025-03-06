@@ -1,131 +1,311 @@
-# Taskforge Tag Tracking Features Integration
+# Taskforge Implementation Guide
 
-This guide explains how to integrate the new tag tracking features into your Taskforge plugin. The implementation addresses the requirements for better tag detection and task management with Taskwarrior.
+## 1. Core Functionality Implementation
 
-## Files to Add/Update
+### 1.1 Dialog System
 
-1. **`lua/taskforge/tracker.lua`**
+The dialog system needs to be generalized to provide a flexible foundation for all user interfaces:
 
-   - This is the core module that handles tag detection, task creation, and tracking
-   - Includes smart debouncing, UUID protection, and comment tracking
+```lua
+-- Interface for dialog options
+{
+  -- Content parameters
+  title = "Dialog Title",           -- Title shown in border
+  columns = {                       -- Column definitions
+    { id = "select", width = 4 },
+    { id = "tag", width = 8 },
+    { id = "description", width = 30 },
+  },
+  data = {...},                     -- Data items to display
 
-2. **`lua/taskforge/multiline.lua`**
-   - New module to support multiline comment detection and processing
-   - Works with different language syntax for block comments
+  -- Appearance
+  position = {                      -- Position relative to source window
+    row = "top",                    -- "top", "center", "bottom" or number
+    col = "center",                 -- "left", "center", "right" or number
+  },
+  size = {                          -- Size constraints
+    width_percent = 80,             -- Percentage of window width
+    height_percent = 20,            -- Percentage of window height
+    min_width = 40,                 -- Minimum width
+    min_height = 10,                -- Minimum height
+  },
 
-## Integration Steps
+  -- Behavior
+  source_bufnr = bufnr,             -- Source buffer for navigation
+  keymaps = {                       -- Keyboard mappings
+    ["<CR>"] = function(dialog) end,
+    ["q"] = function(dialog) end,
+  },
 
-1. **Place the files in your plugin directory**:
+  -- Callbacks
+  on_select = function(item) end,   -- Item selection callback
+  on_highlight = function(item) end, -- Item highlighting callback
+  on_complete = function(items) end, -- Dialog completion callback
 
-   - Copy `tracker.lua` to `lua/taskforge/`
-   - Copy `multiline.lua` to `lua/taskforge/`
+  -- Optional features
+  enable_filter = true,             -- Enable filtering
+  enable_sort = true,               -- Enable sorting
+  enable_search = true,             -- Enable fuzzy search
 
-2. **Update your initialization in `init.lua`**:
+  -- Help content
+  help_content = {                  -- Help text to display
+    title = "Help Dialog",
+    sections = {...}
+  }
+}
+```
+
+### 1.2 Tag Tracking
+
+The tag tracking system should implement these behaviors:
+
+1. **Smart Debouncing**:
 
    ```lua
-   -- Add this to your setup function
-   if M._available_deps.taskwarrior then
-     -- Configure taskwarrior
-     require("taskforge.tasks").configure()
+   -- Monitor editing activity
+   vim.api.nvim_create_autocmd({"TextChanged", "TextChangedI"}, {
+     callback = function(event)
+       -- Mark editing as active
+       tracker.state.edit_active = true
+       -- Reset debounce timer
+       tracker.reset_debounce_timer(event.buf)
+     end
+   })
 
-     -- Initialize tracker module
-     require("taskforge.tracker").setup()
+   -- Process after editing stops
+   vim.api.nvim_create_autocmd({"InsertLeave"}, {
+     callback = function(event)
+       -- Mark editing as inactive
+       tracker.state.edit_active = false
+     end
+   })
+   ```
 
-     -- Set up commands
-     require("taskforge.commands").register()
+2. **UUID Protection**:
+
+   ```lua
+   -- Verify and fix UUID format
+   function verify_uuid_format(line, uuid)
+     local original_marker = "[task:" .. uuid .. "]"
+     -- Check if line contains exactly this marker
+     if not line:match(escape_pattern(original_marker)) then
+       -- Prompt user to restore the correct format
+       prompt_restore_uuid(line, uuid)
+     end
    end
    ```
 
-3. **Update your configuration options in `config.lua`**:
+3. **Formatter Compatibility**:
 
    ```lua
-   -- Add these options to your default configuration
-   tags = {
-     -- existing options...
+   -- Hook into formatting events
+   vim.api.nvim_create_autocmd({"BufWritePre"}, {
+     callback = function(event)
+       -- Store current UUIDs before formatting
+       store_buffer_uuids(event.buf)
+     end
+   })
 
-     -- New options
-     remove_on_done = true, -- Remove tag when task is completed
-     remove_line_on_done = false, -- Remove entire line when task is completed
-     optout_marker = "[notrack]", -- Marker for comments that should not be tracked
-   },
+   vim.api.nvim_create_autocmd({"BufWritePost"}, {
+     callback = function(event)
+       -- Check and restore UUIDs after formatting
+       check_and_restore_uuids(event.buf)
+     end
+   })
    ```
 
-4. **Register the new commands in `commands.lua`**:
+## 2. UI Implementation
 
-   ```lua
-   -- Update your cmd_tag function to handle the new commands
-   function M.cmd_tag(args)
-     if #args == 0 then
-       utils.notify("Usage: Taskforge tag <add|remove|link|optout|process>", vim.log.levels.ERROR)
-       return
-     end
+### 2.1 Component Consolidation
 
-     local tracker = require("taskforge.tracker")
-     local subcmd = args[1]
+The UI components should be consolidated into a single file:
 
-     if subcmd == "add" then
-       tracker.add_tag_at_cursor()
-     elseif subcmd == "remove" then
-       tracker.remove_tag_at_cursor()
-     elseif subcmd == "link" then
-       tracker.link_tag_to_task()
-     elseif subcmd == "optout" then
-       tracker.add_optout_at_cursor()
-     elseif subcmd == "process" then
-       tracker.process_all_comments()
-     else
-       utils.notify("Unknown tag command: " .. subcmd, vim.log.levels.ERROR)
-     end
-   end
-   ```
+```lua
+-- components.lua will include:
 
-## Key Features Implemented
+-- List component
+M.create_list = function(options)
+  -- Create scrollable, selectable list
+end
 
-1. **Smart Debouncing**
+-- Form component
+M.create_form = function(options)
+  -- Create form with inputs
+end
 
-   - Tag processing is paused during active editing
-   - Processing resumes after editing stops for the configured debounce period
+-- Tree component
+M.create_tree = function(options)
+  -- Create hierarchical tree view
+end
 
-2. **UUID Protection**
+-- Tab component
+M.create_tabs = function(options)
+  -- Create tabbed interface
+end
+```
 
-   - Warns when UUIDs are modified and offers to restore them
-   - Ensures task tracking remains intact even if comments are edited
+### 2.2 Help System
 
-3. **Multiline Comment Support**
+The help system should be generalized:
 
-   - Detects and processes tags in multiline comments across various languages
-   - Properly handles block comment syntax for different file types
+```lua
+-- Help system options
+{
+  title = "Help Dialog",            -- Help title
+  sections = {                      -- Content sections
+    {
+      title = "Navigation",
+      content = {
+        "j/k, Up/Down : Move selection",
+        "Enter : Confirm selection"
+      }
+    },
+    {
+      title = "Actions",
+      content = {
+        "v : Toggle selection",
+        "V : Toggle all"
+      }
+    }
+  },
+  keymaps = {                       -- Auto-close on any key
+    ["<any>"] = function(help) help:close() end
+  }
+}
+```
 
-4. **Opt-out Mechanism**
+## 3. Batch Processing Implementation
 
-   - Users can add `[notrack]` to comments to exclude them from tracking
-   - Prevents unwanted task creation for certain comments
+The batch processing dialog should use the generalized dialog system:
 
-5. **Batch Processing**
+```lua
+-- Simplified batch.lua using generalized dialog
+function process_batch_tags(bufnr, candidates)
+  -- Categorize candidates
+  local auto_tags, manual_tags, interactive_tags = categorize_tags(candidates)
 
-   - New command `:TaskforgeTag process` to handle multiple tags in a file
-   - Automatically processes tags based on their configuration
+  -- Process automatic tags
+  process_auto_tags(bufnr, auto_tags)
 
-6. **Formatter Compatibility**
-   - Includes hooks for popular formatters like conform.nvim
-   - Automatically fixes any UUIDs affected by formatting
+  -- Notify about manual tags
+  notify_manual_tags(bufnr, manual_tags)
 
-## Testing Your Integration
+  -- Show dialog for interactive tags
+  if #interactive_tags > 0 then
+    dialog.show({
+      title = "Select Tags to Create",
+      source_bufnr = bufnr,
+      data = interactive_tags,
+      columns = { "select", "tag", "description", "line" },
+      on_complete = function(results)
+        apply_tag_selections(bufnr, results)
+      end
+    })
+  end
+end
+```
 
-After integrating the new code:
+## 4. Language Module Improvements
 
-1. Open a file with untracked TODO comments
-2. Run `:TaskforgeTag process` to see batch processing in action
-3. Try editing a comment with a UUID to test the protection feature
-4. Format a file with a tracked comment to test formatter compatibility
-5. Add a multiline comment with a tag and process it
+Language modules should follow a consistent pattern:
 
-## Common Issues
+```lua
+-- Template for language modules
+local M = {}
 
-- If formatter hooks aren't working, ensure your formatter emits the appropriate events
-- For LSP-based formatters, you may need to add custom events
-- Test with different comment styles to ensure proper multiline support
+-- Required metadata
+M.name = "language_name"
+M.filetypes = { "filetype1", "filetype2" }
 
----
+-- Comment pattern definitions
+M.comment_patterns = {
+  line_start = "//",
+  block_start = "/*",
+  block_end = "*/",
+  -- Other language-specific patterns
+}
 
-These new features significantly enhance the tag tracking capabilities of Taskforge while improving the user experience. The implementation properly handles the edge cases mentioned in the requirements and adds smooth integration with code formatters.
+-- Required functions
+M.is_comment_string = function(line) ... end
+M.extract_tag_info = function(comment_text, tag_name) ... end
+M.detect_comment_context = function(bufnr, lnum) ... end
+M.add_uuid_to_comment = function(comment_text, uuid) ... end
+
+return M
+```
+
+## 5. Error Handling
+
+Implement robust error handling throughout:
+
+```lua
+-- Protected function execution
+function safely_execute(func, ...)
+  local status, result = pcall(func, ...)
+  if not status then
+    log_error("Function execution failed: " .. tostring(result))
+    notify_user("Operation failed: " .. get_friendly_error(result))
+    return nil
+  end
+  return result
+end
+
+-- Health check
+function check_health()
+  local issues = {}
+
+  -- Check dependencies
+  if not has_dependency("plenary") then
+    table.insert(issues, "Required dependency 'plenary.nvim' missing")
+  end
+
+  -- Check Taskwarrior
+  if vim.fn.executable("task") ~= 1 then
+    table.insert(issues, "Taskwarrior not found in PATH")
+  end
+
+  -- Check configuration
+  local config_issues = validate_config(config.get())
+  for _, issue in ipairs(config_issues) do
+    table.insert(issues, issue)
+  end
+
+  return issues
+end
+```
+
+## 6. Integration Testing
+
+The implementation should be validated through these test scenarios:
+
+1. **Comment Detection**:
+
+   - Verify detection across supported languages
+   - Test with various comment styles
+   - Validate multiline comment handling
+
+2. **Task Synchronization**:
+
+   - Create tasks from comments
+   - Update tasks when comments change
+   - Remove tasks when comments are deleted
+   - Handle task status changes
+
+3. **UI Interactions**:
+
+   - Test dialog with various data sets
+   - Validate keyboard navigation
+   - Check selection behavior
+   - Verify buffer navigation integration
+
+4. **Formatter Compatibility**:
+
+   - Test with multiple formatters
+   - Verify UUID preservation
+   - Check restoration of damaged UUIDs
+
+5. **Edge Cases**:
+   - Handle very large files
+   - Test with unicode characters
+   - Verify behavior with malformed comments
+   - Check performance with many tracked tasks
