@@ -24,7 +24,7 @@ function M.process(bufnr, initial_scan, force_scan)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Get buffer utilities for stack overflow prevention
-  local buffer_utils = require("taskforge.buffer_utils")
+  local buffer_utils = require("taskforge.utils.buffer")
 
   -- Process safely with a timeout to prevent stack overflow
   return buffer_utils.process_safely(bufnr, function()
